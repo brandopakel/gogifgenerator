@@ -7,11 +7,14 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 ## What works now
 
 - Pure-Go animated GIF renderer with orbit, pulse, wave, and confetti motion systems
+- Free local Blender still generation, animated and encoded into GIFs by Go
+- Native local ComfyUI adapter for text-to-image and one licensed reference image
 - Natural-language art planning with a deterministic offline planner
 - Optional, disabled-by-default OpenAI art direction through the Responses API and strict structured output
 - Automatic local fallback if the AI provider is unavailable
 - Responsive, installable PWA embedded in the Go binary
 - Free Wikimedia Commons search through a normalized, rights-aware provider adapter
+- Allowlisted, size-bounded temporary Wikimedia reference fetching with deletion after each job
 - Optional direct-to-GIPHY search integration with required attribution
 - MemKV-backed asset catalog with an ephemeral zero-config fallback
 - Content-addressed local blob storage for generated media
@@ -31,6 +34,25 @@ Open <http://localhost:8080>. No account or API key is required for local GIF cr
 This is the zero-spend mode: local Go rendering, Wikimedia discovery, in-memory metadata, and local filesystem output. It does not provision cloud storage or call a paid AI API. See [Zero-cost architecture](docs/ZERO_COST_ARCHITECTURE.md).
 
 GoGIF is a connector, not a GIF warehouse: existing catalog media stays on its source host. Only original GoGIF outputs (and explicit user uploads) enter managed local storage. A licensed reference used for generation is temporary and is deleted after the new output is created.
+
+For richer procedural art using the Blender already installed on this computer:
+
+```sh
+GOGIF_IMAGE_GENERATOR=blender make run
+```
+
+Blender is not a diffusion model: it creates an original prompt-seeded 3D scene without a model download, account, or network call. For local diffusion and licensed reference remixes, use the ComfyUI setup in [Local generation](docs/LOCAL_GENERATION.md).
+
+### Keys and accounts
+
+| Capability | Key needed? | Cost behavior |
+| --- | --- | --- |
+| Go renderer, Blender, local ComfyUI, MemKV | No | Runs on hardware you own |
+| Wikimedia Commons search/reference | No | Source media remains provider-hosted; normal bandwidth only |
+| Public ungated model checkpoint | Usually no | License and hardware requirements are model-specific |
+| GIPHY search | Yes, `GIPHY_API_KEY` | Optional provider integration |
+| OpenAI art-direction planner | Yes, `OPENAI_API_KEY` plus `GOGIF_ENABLE_PAID_AI=true` | Paid opt-in; never part of zero-spend mode |
+| Comfy Cloud | Not used | GoGIF talks only to the local native ComfyUI API |
 
 ### Optional external services
 
@@ -74,6 +96,7 @@ The GIF bytes go to content-addressed blob storage; MemKV holds the searchable r
 | `GET` | `/api/v1/gifs/{id}` | Serve an original GoGIF asset when persistent local storage is enabled |
 | `POST` | `/api/v1/gifs/plan` | Inspect the prompt-derived animation plan |
 | `POST` | `/api/v1/gifs/generate` | Stream an `image/gif` response |
+| `POST` | `/api/v1/gifs/generate-from-reference` | Revalidate, temporarily fetch, locally transform, then delete an approved provider reference |
 
 Example:
 
@@ -90,9 +113,8 @@ The first release is intentionally a modular monolith:
 
 ```text
 phone / desktop PWA ─┐
-browser extension ───┼──> Go HTTP API ──┬─> art planner ──> pure-Go renderer
-web browser ─────────┘                   │   ├─ local          └─ animated GIF
-                                        │   └─ optional hosted adapter
+browser extension ───┼──> Go HTTP API ──┬─> local planner
+web browser ─────────┘                   ├─> Go / Blender / ComfyUI ──> animated GIF
                                         └─> provider adapters ──> Wikimedia Commons
 ```
 

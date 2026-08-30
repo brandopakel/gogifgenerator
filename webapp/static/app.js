@@ -20,10 +20,13 @@ const elements = {
   searchMessage: document.querySelector('#search-message'),
   searchResults: document.querySelector('#search-results'),
   install: document.querySelector('#install-button'),
+  referenceChip: document.querySelector('#reference-chip'),
+  referenceLabel: document.querySelector('#reference-label'),
+  referenceClear: document.querySelector('#reference-clear'),
   toast: document.querySelector('#toast'),
 };
 
-const state = { mode: 'create', config: null, objectURL: '', seed: 0, installPrompt: null };
+const state = { mode: 'create', config: null, objectURL: '', seed: 0, installPrompt: null, reference: null };
 
 async function loadConfig() {
   try {
@@ -32,6 +35,10 @@ async function loadConfig() {
     if (state.config.planner === 'ai') {
       elements.engine.innerHTML = '<span></span> AI art director';
       elements.resultNote.textContent = `AI-directed with ${state.config.model}; rendered locally by Go.`;
+    }
+    if (state.config.image_generator?.local) {
+      elements.engine.innerHTML = '<span></span> Local generative engine';
+      elements.resultNote.textContent = `${state.config.image_generator.label} creates original art locally; Go animates it.`;
     }
   } catch {
     showToast('Could not read app configuration.');
@@ -66,17 +73,25 @@ async function generate(prompt, reroll = false) {
   if (reroll) state.seed = Date.now();
   try {
     const size = Number(elements.size.value);
-    const response = await fetch('/api/v1/gifs/generate', {
+    const payload = {
+      prompt,
+      width: size,
+      height: size,
+      frames: 18,
+      delay_ms: Number(elements.tempo.value),
+      seed: state.seed,
+    };
+    let endpoint = '/api/v1/gifs/generate';
+    if (state.reference) {
+      endpoint = '/api/v1/gifs/generate-from-reference';
+      payload.provider = state.reference.provider;
+      payload.external_id = state.reference.externalID;
+      payload.locale = 'en';
+    }
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt,
-        width: size,
-        height: size,
-        frames: 18,
-        delay_ms: Number(elements.tempo.value),
-        seed: state.seed,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!response.ok) {
       const problem = await response.json().catch(() => ({}));
@@ -90,11 +105,17 @@ async function generate(prompt, reroll = false) {
     elements.previewEmpty.hidden = true;
     elements.resultTitle.textContent = prompt.length > 48 ? `${prompt.slice(0, 48)}…` : prompt;
     const engine = response.headers.get('X-GoGIF-Engine') || 'local';
-    elements.resultNote.textContent = engine.startsWith('openai')
-      ? 'AI-directed, then rendered frame by frame by the Go engine.'
-      : engine.includes('fallback')
-        ? 'The AI planner was unavailable, so the local art director kept things moving.'
-        : 'Planned and rendered locally by the Go engine—fast, private, and repeatable.';
+    if (engine.includes('comfyui')) {
+      elements.resultNote.textContent = 'Original imagery generated locally with ComfyUI, then animated and encoded by Go.';
+    } else if (engine.includes('blender')) {
+      elements.resultNote.textContent = 'Original 3D art rendered locally with Blender, then animated and encoded by Go.';
+    } else if (engine.startsWith('openai')) {
+      elements.resultNote.textContent = 'AI-directed, then rendered frame by frame by the Go engine.';
+    } else if (engine.includes('fallback')) {
+      elements.resultNote.textContent = 'The AI planner was unavailable, so the local art director kept things moving.';
+    } else {
+      elements.resultNote.textContent = 'Planned and rendered locally by the Go engine—fast, private, and repeatable.';
+    }
     elements.download.href = state.objectURL;
     elements.download.classList.remove('disabled');
     elements.download.setAttribute('aria-disabled', 'false');
@@ -149,10 +170,14 @@ async function searchWikimedia(query) {
 		label: 'Wikimedia Commons',
 		credit: 'OPEN MEDIA · CHECK EACH LICENSE',
 		items: payload.results.map((item) => ({
+			provider: item.provider,
+			externalID: item.external_id,
 			href: item.source_url,
 			preview: item.preview_url,
 			title: item.title || query,
 			note: [item.author, item.license_name].filter(Boolean).join(' · '),
+			transformPolicy: item.transform_policy,
+			derivatives: item.derivatives,
 		})),
 	};
 }
@@ -196,8 +221,10 @@ function renderProvider(result) {
 }
 
 function searchCard(item) {
+	const card = document.createElement('article');
+	card.className = 'search-card';
 	const link = document.createElement('a');
-	link.className = 'search-card';
+	link.className = 'search-card-link';
 	link.href = item.href;
 	link.target = '_blank';
 	link.rel = 'noreferrer';
@@ -213,7 +240,35 @@ function searchCard(item) {
 		copy.textContent = item.note;
 		link.append(copy);
 	}
-	return link;
+	card.append(link);
+	const canRemix = state.config?.image_generator?.supports_references
+		&& item.transformPolicy === 'allowed'
+		&& item.derivatives === 'allowed';
+	if (canRemix) {
+		const remix = document.createElement('button');
+		remix.className = 'remix-button';
+		remix.type = 'button';
+		remix.textContent = 'Use as reference';
+		remix.addEventListener('click', () => selectReference(item));
+		card.append(remix);
+	}
+	return card;
+}
+
+function selectReference(item) {
+	state.reference = item;
+	elements.referenceLabel.textContent = item.title;
+	elements.referenceChip.hidden = false;
+	setMode('create');
+	if (!elements.prompt.value.trim()) elements.prompt.value = `Remix ${item.title}`;
+	elements.prompt.focus();
+	showToast('Reference selected. The source file will only exist temporarily during generation.');
+}
+
+function clearReference() {
+	state.reference = null;
+	elements.referenceChip.hidden = true;
+	elements.referenceLabel.textContent = '';
 }
 
 function setWorking(working) {
@@ -237,6 +292,7 @@ for (const suggestion of document.querySelectorAll('[data-prompt]')) {
   });
 }
 elements.form.addEventListener('submit', submitPrompt);
+elements.referenceClear.addEventListener('click', clearReference);
 elements.reroll.addEventListener('click', () => generate(elements.prompt.value.trim(), true));
 elements.prompt.addEventListener('input', () => {
   elements.prompt.style.height = 'auto';

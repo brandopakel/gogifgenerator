@@ -73,3 +73,36 @@ func TestLibrarySavesGeneratedBytesAndCatalogRecord(t *testing.T) {
 		t.Fatalf("OpenGenerated(external) error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestLibraryPreservesTemporaryReferenceProvenance(t *testing.T) {
+	ctx := context.Background()
+	repository := NewRepository(store.NewMemoryKV())
+	blobs, err := store.NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	library := NewLibrary(repository, blobs)
+	library.newID = func() (string, error) { return "gif_reference", nil }
+
+	asset, err := library.SaveGenerated(ctx, GeneratedAsset{
+		Prompt: "remix this",
+		Engine: "comfyui-local+local",
+		Spec:   gifdomain.Defaults(),
+		Data:   []byte("GIF89a-test"),
+		Source: &GeneratedSource{
+			Provider: "wikimedia", ExternalID: "42", SourceURL: "https://commons.wikimedia.org/wiki/File:Example.png",
+			Author: "Example Author", LicenseID: "cc-by-sa-4.0", LicenseURL: "https://creativecommons.org/licenses/by-sa/4.0/",
+			Attribution: "Example Author / CC BY-SA 4.0", CommercialUse: PermissionAllowed,
+			Derivatives: PermissionAllowed, ShareAlike: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asset.Provenance.Provider != "gogif" || asset.Provenance.SourceProvider != "wikimedia" || asset.Provenance.SourceExternalID != "42" {
+		t.Fatalf("provenance = %#v", asset.Provenance)
+	}
+	if asset.Rights.LicenseID != "cc-by-sa-4.0" || !asset.Rights.ShareAlike || asset.Rights.Derivatives != PermissionAllowed {
+		t.Fatalf("rights = %#v", asset.Rights)
+	}
+}

@@ -12,10 +12,14 @@ import (
 
 	"github.com/brandopakel/gogifgenerator/internal/config"
 	"github.com/brandopakel/gogifgenerator/internal/httpapi"
+	"github.com/brandopakel/gogifgenerator/internal/imagegen"
+	"github.com/brandopakel/gogifgenerator/internal/imagegen/blender"
+	"github.com/brandopakel/gogifgenerator/internal/imagegen/comfyui"
 	"github.com/brandopakel/gogifgenerator/internal/media"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
 	"github.com/brandopakel/gogifgenerator/internal/provider/wikimedia"
+	"github.com/brandopakel/gogifgenerator/internal/reference"
 	"github.com/brandopakel/gogifgenerator/internal/store"
 )
 
@@ -76,25 +80,67 @@ func main() {
 	mediaProviders := []provider.Provider{
 		provider.Cached{Next: commons, KV: catalog, TTL: 15 * time.Minute},
 	}
+	referenceFetcher, err := reference.New(reference.Options{})
+	if err != nil {
+		logger.Error("configure temporary reference fetcher", "error", err)
+		os.Exit(1)
+	}
+	var stillGenerator imagegen.Generator
+	imageGeneratorName := settings.ImageGenerator
+	if imageGeneratorName == "" && settings.ComfyUICheckpoint != "" {
+		imageGeneratorName = "comfyui"
+	}
+	switch imageGeneratorName {
+	case "":
+	case "blender":
+		generator, err := blender.New(blender.Options{Executable: settings.BlenderExecutable})
+		if err != nil {
+			logger.Error("configure local Blender", "error", err)
+			os.Exit(1)
+		}
+		stillGenerator = generator
+	case "comfyui":
+		if settings.ComfyUICheckpoint == "" {
+			logger.Error("configure local ComfyUI", "error", "GOGIF_COMFYUI_CHECKPOINT is required")
+			os.Exit(1)
+		}
+		generator, err := comfyui.New(comfyui.Options{
+			Endpoint: settings.ComfyUIURL, Checkpoint: settings.ComfyUICheckpoint, InputDirectory: settings.ComfyUIInputDir,
+		})
+		if err != nil {
+			logger.Error("configure local ComfyUI", "error", err)
+			os.Exit(1)
+		}
+		stillGenerator = generator
+	default:
+		logger.Error("configure local image generator", "error", "GOGIF_IMAGE_GENERATOR must be blender or comfyui")
+		os.Exit(1)
+	}
 
 	handler := httpapi.New(httpapi.Options{
-		Planner:         animationPlanner,
-		Logger:          logger,
-		AIEnabled:       paidAIEnabled,
-		AIModel:         settings.OpenAIModel,
-		GiphyAPIKey:     settings.GiphyAPIKey,
-		Catalog:         catalog,
-		CatalogBackend:  catalogBackend,
-		GeneratedSaver:  generatedSaver,
-		GeneratedReader: generatedReader,
-		Providers:       mediaProviders,
+		Planner:          animationPlanner,
+		Logger:           logger,
+		AIEnabled:        paidAIEnabled,
+		AIModel:          settings.OpenAIModel,
+		GiphyAPIKey:      settings.GiphyAPIKey,
+		Catalog:          catalog,
+		CatalogBackend:   catalogBackend,
+		GeneratedSaver:   generatedSaver,
+		GeneratedReader:  generatedReader,
+		Providers:        mediaProviders,
+		ImageGenerator:   stillGenerator,
+		ReferenceFetcher: referenceFetcher,
 	})
+	writeTimeout := 30 * time.Second
+	if stillGenerator != nil {
+		writeTimeout = 5 * time.Minute
+	}
 	server := &http.Server{
 		Addr:              settings.Address,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       60 * time.Second,
 	}
 
@@ -109,7 +155,11 @@ func main() {
 		}
 	}()
 
-	logger.Info("GoGIF is ready", "url", httpapi.AddressURL(settings.Address), "ai", paidAIEnabled, "catalog", catalogBackend)
+	imageGeneratorID := "disabled"
+	if stillGenerator != nil {
+		imageGeneratorID = stillGenerator.Descriptor().ID
+	}
+	logger.Info("GoGIF is ready", "url", httpapi.AddressURL(settings.Address), "ai", paidAIEnabled, "image_generator", imageGeneratorID, "catalog", catalogBackend)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)

@@ -14,7 +14,8 @@ The input and result surfaces are shared. The systems behind them are deliberate
 | Boundary | Responsibility | Current implementation |
 | --- | --- | --- |
 | `internal/planner` | Prompt → validated animation spec | Offline deterministic planner; optional OpenAI adapter |
-| `internal/imagegen` | Prompt/reference images → generated still image | Vendor-neutral contract; local adapter is the zero-cost target |
+| `internal/imagegen` | Prompt/reference images → generated still image | Local Blender procedural adapter and native ComfyUI adapter |
+| `internal/reference` | Approved provider item → bounded temporary input | Revalidation, exact-host allowlist, MIME/size checks, SHA-256, deletion |
 | `internal/gif` | Stable domain contract and safety bounds | Dimensions, timing, palette, motion, caption |
 | `internal/render` | Animation spec → encoded asset | Pure-Go indexed-color GIF renderer |
 | `internal/media` | Asset, rendition, provenance, and rights catalog | Validated JSON records persisted through the KV boundary |
@@ -60,7 +61,7 @@ GIPHY currently requires calls to be made from the client. When explicitly confi
 
 ## Zero-spend operation
 
-The default topology runs on the user's computer: one Go process, an in-memory catalog, local file bytes, Wikimedia's public API, and no hosted AI calls. MemKV can be enabled locally for persistent catalog records without modifying the MemKV repository. A future local image-model adapter will implement `internal/imagegen`; it receives validated bytes from a controlled importer, never an arbitrary URL.
+The default topology runs on the user's computer: one Go process, an in-memory catalog, local file bytes, Wikimedia's public API, and no hosted AI calls. MemKV can be enabled locally for persistent catalog records without modifying the MemKV repository. Blender and ComfyUI implement `internal/imagegen`; they receive validated bytes from the controlled reference fetcher, never an arbitrary URL.
 
 Cloud object storage, managed databases, remote GPU workers, and hosted model APIs are optional deployment choices, not prerequisites. A public multi-user service cannot promise zero ongoing cost because its compute, bandwidth, and storage must run somewhere.
 
@@ -71,7 +72,7 @@ The pure-Go renderer is fast to ship and universally buildable. It intentionally
 ## Deployment path
 
 1. Local/self-hosted Go binary with local files and optional local MemKV.
-2. Local image-model process behind the `internal/imagegen` contract.
+2. Optional local Blender or ComfyUI process behind the `internal/imagegen` contract.
 3. Only if a funded public service is later approved: TLS hosting, managed object storage, backups, and quotas.
 4. Only after measured demand: horizontally scaled API and CPU/GPU workers.
 

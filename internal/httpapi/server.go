@@ -8,6 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -16,25 +19,29 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brandopakel/gogifgenerator/internal/imagegen"
 	"github.com/brandopakel/gogifgenerator/internal/media"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
+	"github.com/brandopakel/gogifgenerator/internal/reference"
 	"github.com/brandopakel/gogifgenerator/internal/render"
 	"github.com/brandopakel/gogifgenerator/internal/store"
 	"github.com/brandopakel/gogifgenerator/webapp"
 )
 
 type Options struct {
-	Planner         planner.Planner
-	Logger          *slog.Logger
-	AIEnabled       bool
-	AIModel         string
-	GiphyAPIKey     string
-	Catalog         store.KV
-	CatalogBackend  string
-	GeneratedSaver  media.GeneratedSaver
-	GeneratedReader media.GeneratedReader
-	Providers       []provider.Provider
+	Planner          planner.Planner
+	Logger           *slog.Logger
+	AIEnabled        bool
+	AIModel          string
+	GiphyAPIKey      string
+	Catalog          store.KV
+	CatalogBackend   string
+	GeneratedSaver   media.GeneratedSaver
+	GeneratedReader  media.GeneratedReader
+	Providers        []provider.Provider
+	ImageGenerator   imagegen.Generator
+	ReferenceFetcher *reference.Fetcher
 }
 
 func New(options Options) http.Handler {
@@ -53,6 +60,7 @@ func New(options Options) http.Handler {
 	mux.HandleFunc("GET /api/v1/providers/{provider}/search", server.searchProvider)
 	mux.HandleFunc("POST /api/v1/gifs/plan", server.plan)
 	mux.HandleFunc("POST /api/v1/gifs/generate", server.generate)
+	mux.HandleFunc("POST /api/v1/gifs/generate-from-reference", server.generateFromReference)
 	mux.HandleFunc("GET /api/v1/gifs/{id}", server.generated)
 	mux.Handle("/", staticHandler())
 	return server.securityHeaders(server.accessLog(mux))
@@ -105,10 +113,11 @@ func (s *server) publicConfig(w http.ResponseWriter, _ *http.Request) {
 		providers = append(providers, map[string]any{"id": descriptor.ID, "label": descriptor.Label, "enabled": true})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"planner":       mode,
-		"model":         s.options.AIModel,
-		"giphy_api_key": s.options.GiphyAPIKey,
-		"providers":     providers,
+		"planner":         mode,
+		"model":           s.options.AIModel,
+		"giphy_api_key":   s.options.GiphyAPIKey,
+		"providers":       providers,
+		"image_generator": imageGeneratorDescriptor(s.options.ImageGenerator),
 	})
 }
 
@@ -173,19 +182,158 @@ func (s *server) generate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	var output bytes.Buffer
-	if err := render.GIF(&output, result.Spec); err != nil {
-		s.options.Logger.Error("render GIF", "error", err)
+	data, engine, err := s.createGIF(r.Context(), request, result, nil, false)
+	if err != nil {
+		s.options.Logger.Error("create GIF", "error", err)
 		writeError(w, http.StatusInternalServerError, "could not render GIF")
 		return
 	}
-	if s.options.GeneratedSaver != nil {
-		asset, err := s.options.GeneratedSaver.SaveGenerated(r.Context(), media.GeneratedAsset{
-			Prompt: request.Prompt,
-			Engine: result.Engine,
-			Spec:   result.Spec,
-			Data:   output.Bytes(),
+	s.writeGenerated(w, r, request, result, data, engine, nil)
+}
+
+type referenceGenerateRequest struct {
+	Provider   string `json:"provider"`
+	ExternalID string `json:"external_id"`
+	Locale     string `json:"locale,omitempty"`
+	Prompt     string `json:"prompt"`
+	Width      int    `json:"width,omitempty"`
+	Height     int    `json:"height,omitempty"`
+	Frames     int    `json:"frames,omitempty"`
+	DelayMS    int    `json:"delay_ms,omitempty"`
+	Seed       int64  `json:"seed,omitempty"`
+}
+
+func (s *server) generateFromReference(w http.ResponseWriter, r *http.Request) {
+	if s.options.ImageGenerator == nil || s.options.ReferenceFetcher == nil {
+		writeError(w, http.StatusServiceUnavailable, "local reference generation is not configured")
+		return
+	}
+	if !s.options.ImageGenerator.Descriptor().SupportsReferences {
+		writeError(w, http.StatusUnprocessableEntity, "configured local image generator does not accept reference images")
+		return
+	}
+	request, ok := decodeReferenceRequest(w, r)
+	if !ok {
+		return
+	}
+	candidate, ok := s.providers[request.Provider]
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown media provider")
+		return
+	}
+	resolver, ok := candidate.(provider.Resolver)
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, "provider does not support reference transformation")
+		return
+	}
+	resolved, err := resolver.Resolve(r.Context(), request.ExternalID, request.Locale)
+	if err != nil {
+		switch {
+		case errors.Is(err, provider.ErrInvalidQuery):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, provider.ErrNotFound):
+			writeError(w, http.StatusNotFound, "provider item was not found")
+		default:
+			s.options.Logger.Warn("resolve provider reference", "provider", request.Provider, "external_id", request.ExternalID, "error", err)
+			writeError(w, http.StatusBadGateway, "could not revalidate provider item")
+		}
+		return
+	}
+	temporary, err := s.options.ReferenceFetcher.Fetch(r.Context(), resolved)
+	if err != nil {
+		switch {
+		case errors.Is(err, reference.ErrNotTransformable):
+			writeError(w, http.StatusUnprocessableEntity, "provider item is not approved for transformation")
+		case errors.Is(err, reference.ErrTooLarge):
+			writeError(w, http.StatusRequestEntityTooLarge, err.Error())
+		case errors.Is(err, reference.ErrUnsupportedMedia):
+			writeError(w, http.StatusUnsupportedMediaType, err.Error())
+		default:
+			s.options.Logger.Warn("fetch provider reference", "provider", request.Provider, "external_id", request.ExternalID, "error", err)
+			writeError(w, http.StatusBadGateway, "could not fetch provider reference")
+		}
+		return
+	}
+	defer temporary.Close()
+	input, err := temporary.Input()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not read temporary reference")
+		return
+	}
+	plannerRequest := request.plannerRequest()
+	plan, err := s.options.Planner.Plan(r.Context(), plannerRequest)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	data, engine, err := s.createGIF(r.Context(), plannerRequest, plan, []imagegen.Input{input}, true)
+	if err != nil {
+		s.options.Logger.Warn("generate from provider reference", "provider", request.Provider, "external_id", request.ExternalID, "error", err)
+		writeError(w, http.StatusBadGateway, "local image generator could not transform the reference")
+		return
+	}
+	if err := temporary.Close(); err != nil {
+		s.options.Logger.Error("delete provider reference", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not delete temporary reference")
+		return
+	}
+	s.writeGenerated(w, r, plannerRequest, plan, data, engine, &resolved)
+}
+
+func (s *server) createGIF(ctx context.Context, request planner.Request, result planner.Result, inputs []imagegen.Input, requireGenerator bool) ([]byte, string, error) {
+	var output bytes.Buffer
+	engine := result.Engine
+	if s.options.ImageGenerator != nil {
+		generated, generateErr := s.options.ImageGenerator.Generate(ctx, imagegen.Request{
+			Prompt: request.Prompt, Inputs: inputs, Width: result.Spec.Width, Height: result.Spec.Height, Seed: result.Spec.Seed,
 		})
+		if generateErr != nil {
+			if requireGenerator {
+				return nil, "", generateErr
+			}
+			s.options.Logger.Warn("local image generator unavailable; using Go renderer", "generator", s.options.ImageGenerator.Descriptor().ID, "error", generateErr)
+		} else if source, _, decodeErr := image.Decode(bytes.NewReader(generated.Data)); decodeErr != nil {
+			if requireGenerator {
+				return nil, "", fmt.Errorf("decode generated image: %w", decodeErr)
+			}
+			s.options.Logger.Warn("decode locally generated image; using Go renderer", "generator", generated.Engine, "error", decodeErr)
+		} else if renderErr := render.ImageGIF(&output, source, result.Spec); renderErr != nil {
+			if requireGenerator {
+				return nil, "", fmt.Errorf("animate generated image: %w", renderErr)
+			}
+			s.options.Logger.Warn("animate locally generated image; using Go renderer", "generator", generated.Engine, "error", renderErr)
+			output.Reset()
+		} else {
+			engine = generated.Engine + "+" + result.Engine
+		}
+	} else if requireGenerator {
+		return nil, "", errors.New("local image generator is required")
+	}
+	if output.Len() == 0 {
+		if err := render.GIF(&output, result.Spec); err != nil {
+			return nil, "", err
+		}
+	}
+	return output.Bytes(), engine, nil
+}
+
+func (s *server) writeGenerated(w http.ResponseWriter, r *http.Request, request planner.Request, result planner.Result, data []byte, engine string, source *provider.Result) {
+	if s.options.GeneratedSaver != nil {
+		generated := media.GeneratedAsset{
+			Prompt: request.Prompt,
+			Engine: engine,
+			Spec:   result.Spec,
+			Data:   data,
+		}
+		if source != nil {
+			generated.Source = &media.GeneratedSource{
+				Provider: source.Provider, ExternalID: source.ExternalID, SourceURL: source.SourceURL,
+				Author: source.Author, LicenseID: source.LicenseID, LicenseURL: source.LicenseURL,
+				Attribution: source.Attribution, CommercialUse: source.CommercialUse,
+				Derivatives: source.Derivatives, ShareAlike: source.ShareAlike,
+			}
+		}
+		asset, err := s.options.GeneratedSaver.SaveGenerated(r.Context(), generated)
 		if err != nil {
 			s.options.Logger.Warn("save generated GIF", "error", err)
 		} else {
@@ -196,11 +344,48 @@ func (s *server) generate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/gif")
 	w.Header().Set("Content-Disposition", `inline; filename="gogif.gif"`)
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-GoGIF-Engine", result.Engine)
+	w.Header().Set("X-GoGIF-Engine", engine)
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(output.Bytes()); err != nil {
+	if _, err := w.Write(data); err != nil {
 		s.options.Logger.Error("write GIF response", "error", err)
 	}
+}
+
+func decodeReferenceRequest(w http.ResponseWriter, r *http.Request) (referenceGenerateRequest, bool) {
+	defer r.Body.Close()
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	var request referenceGenerateRequest
+	if err := decoder.Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON request: "+err.Error())
+		return referenceGenerateRequest{}, false
+	}
+	request.Provider = strings.TrimSpace(request.Provider)
+	request.ExternalID = strings.TrimSpace(request.ExternalID)
+	if request.Provider == "" || len(request.Provider) > 64 || request.ExternalID == "" || len(request.ExternalID) > 128 {
+		writeError(w, http.StatusBadRequest, "provider and external_id are required")
+		return referenceGenerateRequest{}, false
+	}
+	if request.Locale == "" {
+		request.Locale = "en"
+	}
+	if err := request.plannerRequest().Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return referenceGenerateRequest{}, false
+	}
+	return request, true
+}
+
+func (r referenceGenerateRequest) plannerRequest() planner.Request {
+	return planner.Request{Prompt: r.Prompt, Width: r.Width, Height: r.Height, Frames: r.Frames, DelayMS: r.DelayMS, Seed: r.Seed}
+}
+
+func imageGeneratorDescriptor(generator imagegen.Generator) any {
+	if generator == nil {
+		return nil
+	}
+	return generator.Descriptor()
 }
 
 func (s *server) generated(w http.ResponseWriter, r *http.Request) {

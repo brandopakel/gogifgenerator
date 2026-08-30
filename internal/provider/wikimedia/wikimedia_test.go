@@ -98,6 +98,60 @@ func TestSearchRejectsInvalidCursor(t *testing.T) {
 	}
 }
 
+func TestResolveRevalidatesProviderItemByPageID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("pageids"); got != "42" {
+			t.Errorf("pageids = %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"query": map[string]any{"pages": []any{map[string]any{
+			"pageid": 42, "title": "File:Reusable.png",
+			"imageinfo": []any{map[string]any{
+				"url": "https://upload.wikimedia.org/reusable.png", "descriptionurl": "https://commons.wikimedia.org/wiki/File:Reusable.png",
+				"mime": "image/png", "mediatype": "BITMAP",
+				"extmetadata": map[string]any{
+					"License": map[string]any{"value": "cc0"}, "LicenseShortName": map[string]any{"value": "CC0 1.0"},
+				},
+			}},
+		}}}})
+	}))
+	defer server.Close()
+	commons, err := New(Options{Endpoint: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := commons.Resolve(context.Background(), "42", "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ExternalID != "42" || result.TransformPolicy != provider.TransformAllowed || result.OriginalURL != "https://upload.wikimedia.org/reusable.png" {
+		t.Fatalf("Resolve() = %#v", result)
+	}
+}
+
+func TestNormalizeUsesRasterThumbnailAsDrawingReference(t *testing.T) {
+	result, ok := normalize(apiPage{
+		PageID: 51,
+		Title:  "File:Reusable.svg",
+		ImageInfo: []imageInfo{{
+			URL:         "https://upload.wikimedia.org/reusable.svg",
+			Description: "https://commons.wikimedia.org/wiki/File:Reusable.svg",
+			ThumbURL:    "https://upload.wikimedia.org/reusable-480px.png",
+			MIME:        "image/svg+xml",
+			ThumbMIME:   "image/png",
+			MediaType:   "DRAWING",
+			ExtMetadata: map[string]metadataValue{
+				"License": {Value: "cc0"}, "LicenseShortName": {Value: "CC0 1.0"},
+			},
+		}},
+	})
+	if !ok {
+		t.Fatal("normalize() rejected reusable SVG")
+	}
+	if result.OriginalURL != "https://upload.wikimedia.org/reusable.svg" || result.ReferenceURL != "https://upload.wikimedia.org/reusable-480px.png" {
+		t.Fatalf("URLs = original %q, reference %q", result.OriginalURL, result.ReferenceURL)
+	}
+}
+
 func TestClassifyLicense(t *testing.T) {
 	tests := []struct {
 		license     string

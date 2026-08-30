@@ -4,15 +4,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"image"
+	"image/color"
 	"image/gif"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"testing"
 
+	"github.com/brandopakel/gogifgenerator/internal/imagegen"
 	"github.com/brandopakel/gogifgenerator/internal/media"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
+	"github.com/brandopakel/gogifgenerator/internal/reference"
 )
 
 func TestHealth(t *testing.T) {
@@ -42,6 +49,79 @@ func TestGenerate(t *testing.T) {
 	}
 	if _, err := gif.DecodeAll(bytes.NewReader(response.Body.Bytes())); err != nil {
 		t.Fatalf("DecodeAll() error = %v", err)
+	}
+}
+
+func TestGenerateAnimatesLocalImageGeneratorOutput(t *testing.T) {
+	generator := &recordingImageGenerator{}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate", bytes.NewBufferString(`{
+      "prompt": "a tiny local robot",
+      "width": 128,
+      "height": 128,
+      "frames": 4
+    }`))
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, ImageGenerator: generator}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("X-GoGIF-Engine"); got != "test-local+local" {
+		t.Fatalf("X-GoGIF-Engine = %q", got)
+	}
+	if generator.request.Prompt != "a tiny local robot" || generator.request.Width != 128 || generator.request.Height != 128 {
+		t.Fatalf("Generate() request = %#v", generator.request)
+	}
+	if _, err := gif.DecodeAll(bytes.NewReader(response.Body.Bytes())); err != nil {
+		t.Fatalf("DecodeAll() error = %v", err)
+	}
+}
+
+func TestGenerateFromReferenceRevalidatesFetchesAndDeletesSource(t *testing.T) {
+	localGenerator := &recordingImageGenerator{}
+	saver := &recordingSaver{}
+	sourcePNG := generatedTestPNG(t)
+	sourceServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(sourcePNG)
+	}))
+	defer sourceServer.Close()
+	sourceURL, _ := url.Parse(sourceServer.URL)
+	temporaryDirectory := t.TempDir()
+	fetcher, err := reference.New(reference.Options{
+		Client: sourceServer.Client(), TempDir: temporaryDirectory,
+		AllowedHosts: map[string][]string{"test": {sourceURL.Hostname()}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mediaProvider := &recordingProvider{result: provider.Result{
+		Provider: "test", ExternalID: "42", Kind: media.KindImage, OriginalURL: sourceServer.URL,
+		Derivatives: media.PermissionAllowed, TransformPolicy: provider.TransformAllowed,
+	}}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate-from-reference", bytes.NewBufferString(`{
+      "provider":"test", "external_id":"42", "prompt":"make this dance",
+      "width":128, "height":128, "frames":4
+    }`))
+	response := httptest.NewRecorder()
+	New(Options{
+		Planner: planner.Local{}, Providers: []provider.Provider{mediaProvider},
+		ImageGenerator: localGenerator, ReferenceFetcher: fetcher, GeneratedSaver: saver,
+	}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if mediaProvider.resolvedID != "42" || len(localGenerator.request.Inputs) != 1 || localGenerator.request.Inputs[0].SourceID != "test:42" {
+		t.Fatalf("resolved ID = %q; generator request = %#v", mediaProvider.resolvedID, localGenerator.request)
+	}
+	entries, err := os.ReadDir(temporaryDirectory)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("temporary references = %#v, %v", entries, err)
+	}
+	if _, err := gif.DecodeAll(bytes.NewReader(response.Body.Bytes())); err != nil {
+		t.Fatalf("DecodeAll() error = %v", err)
+	}
+	if saver.generated.Source == nil || saver.generated.Source.Provider != "test" || saver.generated.Source.ExternalID != "42" {
+		t.Fatalf("persisted source = %#v", saver.generated.Source)
 	}
 }
 
@@ -144,7 +224,44 @@ func (r *recordingGeneratedReader) OpenGenerated(_ context.Context, id string) (
 }
 
 type recordingProvider struct {
-	query provider.Query
+	query      provider.Query
+	result     provider.Result
+	resolvedID string
+}
+
+func (p *recordingProvider) Resolve(_ context.Context, externalID, _ string) (provider.Result, error) {
+	p.resolvedID = externalID
+	return p.result, nil
+}
+
+type recordingImageGenerator struct {
+	request imagegen.Request
+}
+
+func (g *recordingImageGenerator) Descriptor() imagegen.Descriptor {
+	return imagegen.Descriptor{ID: "test-local", Label: "Test local", Local: true, SupportsReferences: true}
+}
+
+func (g *recordingImageGenerator) Generate(_ context.Context, request imagegen.Request) (imagegen.Result, error) {
+	g.request = request
+	return imagegen.Result{Data: generatedTestPNG(nil), ContentType: "image/png", Engine: "test-local"}, nil
+}
+
+func generatedTestPNG(t *testing.T) []byte {
+	still := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for y := range 8 {
+		for x := range 8 {
+			still.Set(x, y, color.RGBA{R: uint8(x * 30), G: uint8(y * 30), B: 90, A: 255})
+		}
+	}
+	var output bytes.Buffer
+	if err := png.Encode(&output, still); err != nil {
+		if t != nil {
+			t.Fatal(err)
+		}
+		panic(err)
+	}
+	return output.Bytes()
 }
 
 func (p *recordingProvider) Descriptor() provider.Descriptor {

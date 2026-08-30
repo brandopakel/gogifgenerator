@@ -77,6 +77,10 @@ textarea::placeholder { color: #70737a; }
 .suggestions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
 .suggestions button { padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: .72rem; cursor: pointer; }
 .suggestions button:hover { color: var(--ink); border-color: #5a606b; }
+.reference-chip { width: fit-content; max-width: min(760px, 100%); margin: 12px auto 0; padding: 8px 9px 8px 13px; border: 1px solid rgb(112 214 255 / 40%); border-radius: 999px; background: rgb(112 214 255 / 7%); color: var(--blue); font-size: .66rem; font-weight: 850; letter-spacing: .07em; }
+.reference-chip span { display: inline-flex; max-width: min(560px, 65vw); gap: 5px; vertical-align: middle; white-space: nowrap; }
+.reference-chip strong { overflow: hidden; color: var(--ink); text-overflow: ellipsis; }
+.reference-chip button { margin-left: 9px; padding: 5px 9px; border: 0; border-radius: 999px; background: rgb(255 255 255 / 9%); color: var(--ink); font-size: .65rem; cursor: pointer; }
 
 .workspace { max-width: 960px; margin: 90px auto 0; padding-top: 28px; border-top: 1px solid var(--line); }
 .preview-shell { position: relative; aspect-ratio: 16 / 10; display: grid; place-items: center; overflow: hidden; border-radius: 24px; background: #090a0d; border: 1px solid #262a31; }
@@ -115,11 +119,14 @@ select { width: 100%; padding: 11px; border: 1px solid var(--line); border-radiu
 .provider-heading h3 { margin: 0; font-size: 1rem; letter-spacing: -.02em; }
 .provider-heading span { color: var(--muted); font-size: .58rem; font-weight: 900; letter-spacing: .08em; }
 .search-grid { columns: 4 170px; column-gap: 10px; }
-.search-card { position: relative; display: block; break-inside: avoid; width: 100%; margin: 10px 0 0; padding: 0; overflow: hidden; border: 0; border-radius: 11px; background: var(--surface); color: var(--ink); text-decoration: none; cursor: pointer; }
+.search-card { position: relative; display: block; break-inside: avoid; width: 100%; margin: 10px 0 0; padding: 0; overflow: hidden; border: 0; border-radius: 11px; background: var(--surface); color: var(--ink); }
+.search-card-link { display: block; color: var(--ink); text-decoration: none; }
 .search-card img { display: block; width: 100%; height: auto; min-height: 110px; object-fit: cover; }
 .search-card-copy { display: block; padding: 9px 10px 11px; overflow: hidden; color: var(--muted); font-size: .66rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.search-card::after { content: "SOURCE"; position: absolute; right: 7px; top: 7px; padding: 5px 7px; border-radius: 5px; background: rgb(17 19 24 / 82%); color: var(--ink); font-size: .57rem; font-weight: 900; opacity: 0; transition: opacity .15s; }
-.search-card:hover::after { opacity: 1; }
+.search-card-link::after { content: "SOURCE"; position: absolute; right: 7px; top: 7px; padding: 5px 7px; border-radius: 5px; background: rgb(17 19 24 / 82%); color: var(--ink); font-size: .57rem; font-weight: 900; opacity: 0; transition: opacity .15s; }
+.search-card-link:hover::after { opacity: 1; }
+.remix-button { width: calc(100% - 16px); margin: 0 8px 8px; padding: 8px; border: 1px solid rgb(232 255 71 / 28%); border-radius: 8px; background: rgb(232 255 71 / 8%); color: var(--acid); font-size: .67rem; font-weight: 850; cursor: pointer; }
+.remix-button:hover { background: var(--acid); color: var(--paper); }
 
 footer { min-height: 110px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); color: #6f7278; font-size: .76rem; }
 footer a { color: inherit; }

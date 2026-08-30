@@ -60,9 +60,10 @@ type Result struct {
 }
 
 type Descriptor struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Local bool   `json:"local"`
+	ID                 string `json:"id"`
+	Label              string `json:"label"`
+	Local              bool   `json:"local"`
+	SupportsReferences bool   `json:"supports_references"`
 }
 
 type Generator interface {

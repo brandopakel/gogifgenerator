@@ -1,4 +1,4 @@
-const CACHE = 'gogif-shell-v2';
+const CACHE = 'gogif-shell-v4';
 const SHELL = ['/', '/app.css', '/app.js', '/icon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {

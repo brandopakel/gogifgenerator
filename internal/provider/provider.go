@@ -13,6 +13,7 @@ import (
 var (
 	ErrInvalidQuery = errors.New("provider: invalid query")
 	ErrUnavailable  = errors.New("provider: unavailable")
+	ErrNotFound     = errors.New("provider: item not found")
 )
 
 const (
@@ -73,6 +74,7 @@ type Result struct {
 	SourceURL       string           `json:"source_url"`
 	PreviewURL      string           `json:"preview_url"`
 	OriginalURL     string           `json:"original_url"`
+	ReferenceURL    string           `json:"reference_url,omitempty"`
 	ContentType     string           `json:"content_type"`
 	Width           int              `json:"width,omitempty"`
 	Height          int              `json:"height,omitempty"`
@@ -97,4 +99,11 @@ type Descriptor struct {
 type Provider interface {
 	Descriptor() Descriptor
 	Search(context.Context, Query) (Page, error)
+}
+
+// Resolver revalidates a selected search result directly with its provider
+// before any source bytes can enter a transformation job.
+type Resolver interface {
+	Provider
+	Resolve(context.Context, string, string) (Result, error)
 }

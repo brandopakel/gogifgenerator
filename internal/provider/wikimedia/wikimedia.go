@@ -76,15 +76,7 @@ func (c *Commons) Search(ctx context.Context, query provider.Query) (provider.Pa
 	if err != nil {
 		return provider.Page{}, err
 	}
-	select {
-	case c.gate <- struct{}{}:
-		defer func() { <-c.gate }()
-	case <-ctx.Done():
-		return provider.Page{}, ctx.Err()
-	}
-
-	requestURL := *c.endpoint
-	params := requestURL.Query()
+	params := url.Values{}
 	params.Set("action", "query")
 	params.Set("generator", "search")
 	params.Set("gsrsearch", query.Text)
@@ -94,40 +86,10 @@ func (c *Commons) Search(ctx context.Context, query provider.Query) (provider.Pa
 	if offset > 0 {
 		params.Set("gsroffset", strconv.Itoa(offset))
 	}
-	params.Set("prop", "imageinfo")
-	params.Set("iiprop", "url|mime|thumbmime|size|mediatype|extmetadata")
-	params.Set("iiurlwidth", "480")
-	params.Set("iiextmetadatalanguage", query.Locale)
-	params.Set("format", "json")
-	params.Set("formatversion", "2")
-	requestURL.RawQuery = params.Encode()
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
+	imageInfoParams(params, query.Locale)
+	payload, err := c.query(ctx, params)
 	if err != nil {
-		return provider.Page{}, fmt.Errorf("wikimedia: build request: %w", err)
-	}
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", c.userAgent)
-	response, err := c.client.Do(request)
-	if err != nil {
-		if ctx.Err() != nil {
-			return provider.Page{}, ctx.Err()
-		}
-		return provider.Page{}, fmt.Errorf("%w: wikimedia request: %v", provider.ErrUnavailable, err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
-		return provider.Page{}, fmt.Errorf("%w: wikimedia returned HTTP %d", provider.ErrUnavailable, response.StatusCode)
-	}
-
-	var payload apiResponse
-	decoder := json.NewDecoder(io.LimitReader(response.Body, maxResponseBytes+1))
-	if err := decoder.Decode(&payload); err != nil {
-		return provider.Page{}, fmt.Errorf("%w: decode wikimedia response: %v", provider.ErrUnavailable, err)
-	}
-	if payload.Error.Code != "" {
-		return provider.Page{}, fmt.Errorf("%w: wikimedia %s: %s", provider.ErrUnavailable, payload.Error.Code, payload.Error.Info)
+		return provider.Page{}, err
 	}
 
 	page := provider.Page{Provider: c.Descriptor().ID, Results: make([]provider.Result, 0, len(payload.Query.Pages))}
@@ -140,6 +102,83 @@ func (c *Commons) Search(ctx context.Context, query provider.Query) (provider.Pa
 		}
 	}
 	return page, nil
+}
+
+func (c *Commons) Resolve(ctx context.Context, externalID, locale string) (provider.Result, error) {
+	pageID, err := strconv.ParseInt(strings.TrimSpace(externalID), 10, 64)
+	if err != nil || pageID < 1 {
+		return provider.Result{}, fmt.Errorf("%w: invalid Wikimedia page ID", provider.ErrInvalidQuery)
+	}
+	if locale == "" {
+		locale = "en"
+	}
+	if len(locale) > 16 {
+		return provider.Result{}, fmt.Errorf("%w: locale is too long", provider.ErrInvalidQuery)
+	}
+	params := url.Values{}
+	params.Set("action", "query")
+	params.Set("pageids", strconv.FormatInt(pageID, 10))
+	imageInfoParams(params, locale)
+	payload, err := c.query(ctx, params)
+	if err != nil {
+		return provider.Result{}, err
+	}
+	for _, item := range payload.Query.Pages {
+		if item.PageID != pageID {
+			continue
+		}
+		if result, ok := normalize(item); ok {
+			return result, nil
+		}
+	}
+	return provider.Result{}, provider.ErrNotFound
+}
+
+func imageInfoParams(params url.Values, locale string) {
+	params.Set("prop", "imageinfo")
+	params.Set("iiprop", "url|mime|thumbmime|size|mediatype|extmetadata")
+	params.Set("iiurlwidth", "480")
+	params.Set("iiextmetadatalanguage", locale)
+}
+
+func (c *Commons) query(ctx context.Context, params url.Values) (apiResponse, error) {
+	select {
+	case c.gate <- struct{}{}:
+		defer func() { <-c.gate }()
+	case <-ctx.Done():
+		return apiResponse{}, ctx.Err()
+	}
+	requestURL := *c.endpoint
+	params.Set("format", "json")
+	params.Set("formatversion", "2")
+	requestURL.RawQuery = params.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
+	if err != nil {
+		return apiResponse{}, fmt.Errorf("wikimedia: build request: %w", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", c.userAgent)
+	response, err := c.client.Do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return apiResponse{}, ctx.Err()
+		}
+		return apiResponse{}, fmt.Errorf("%w: wikimedia request: %v", provider.ErrUnavailable, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		return apiResponse{}, fmt.Errorf("%w: wikimedia returned HTTP %d", provider.ErrUnavailable, response.StatusCode)
+	}
+	var payload apiResponse
+	decoder := json.NewDecoder(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err := decoder.Decode(&payload); err != nil {
+		return apiResponse{}, fmt.Errorf("%w: decode wikimedia response: %v", provider.ErrUnavailable, err)
+	}
+	if payload.Error.Code != "" {
+		return apiResponse{}, fmt.Errorf("%w: wikimedia %s: %s", provider.ErrUnavailable, payload.Error.Code, payload.Error.Info)
+	}
+	return payload, nil
 }
 
 type apiResponse struct {
@@ -217,6 +256,15 @@ func normalize(item apiPage) (provider.Result, bool) {
 	credit := metadata(info.ExtMetadata, "Credit")
 	title := strings.TrimPrefix(strings.TrimSpace(item.Title), "File:")
 	attribution := buildAttribution(title, author, credit, licenseName)
+	referenceURL := info.URL
+	if !supportedReferenceMIME(info.MIME) && supportedReferenceMIME(previewMIME) {
+		referenceURL = preview
+	} else if !supportedReferenceMIME(info.MIME) {
+		transformPolicy = provider.TransformReview
+	}
+	if kind != media.KindImage && kind != media.KindGIF {
+		transformPolicy = provider.TransformReview
+	}
 
 	return provider.Result{
 		Provider:        "wikimedia",
@@ -227,6 +275,7 @@ func normalize(item apiPage) (provider.Result, bool) {
 		SourceURL:       info.Description,
 		PreviewURL:      preview,
 		OriginalURL:     info.URL,
+		ReferenceURL:    referenceURL,
 		ContentType:     firstNonEmpty(previewMIME, info.MIME),
 		Width:           info.Width,
 		Height:          info.Height,
@@ -242,6 +291,15 @@ func normalize(item apiPage) (provider.Result, bool) {
 		ShareAlike:      shareAlike,
 		TransformPolicy: transformPolicy,
 	}, true
+}
+
+func supportedReferenceMIME(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return true
+	default:
+		return false
+	}
 }
 
 func mediaKind(mime, mediaType string) (media.Kind, bool) {

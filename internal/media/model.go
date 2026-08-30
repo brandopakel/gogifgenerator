@@ -76,14 +76,16 @@ type Rendition struct {
 }
 
 type Provenance struct {
-	Provider     string     `json:"provider"`
-	ExternalID   string     `json:"external_id,omitempty"`
-	Generator    string     `json:"generator,omitempty"`
-	SourceURL    string     `json:"source_url,omitempty"`
-	Author       string     `json:"author,omitempty"`
-	ImportedAt   *time.Time `json:"imported_at,omitempty"`
-	VerifiedAt   *time.Time `json:"verified_at,omitempty"`
-	RevalidateAt *time.Time `json:"revalidate_at,omitempty"`
+	Provider         string     `json:"provider"`
+	ExternalID       string     `json:"external_id,omitempty"`
+	Generator        string     `json:"generator,omitempty"`
+	SourceProvider   string     `json:"source_provider,omitempty"`
+	SourceExternalID string     `json:"source_external_id,omitempty"`
+	SourceURL        string     `json:"source_url,omitempty"`
+	Author           string     `json:"author,omitempty"`
+	ImportedAt       *time.Time `json:"imported_at,omitempty"`
+	VerifiedAt       *time.Time `json:"verified_at,omitempty"`
+	RevalidateAt     *time.Time `json:"revalidate_at,omitempty"`
 }
 
 type Rights struct {

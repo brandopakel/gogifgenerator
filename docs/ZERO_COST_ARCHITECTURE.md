@@ -12,7 +12,7 @@ local GoGIF API ── search metadata ──> Wikimedia Commons
       │                                  │
       │                                  └─ provider-hosted preview/original
       ├─ local Go renderer ──> GIF
-      ├─ future local image model ──> source frames
+      ├─ local Blender or ComfyUI ──> original still ──> GIF
       ├─ optional local MemKV ──> metadata/cache/jobs
       └─ content-addressed local files ──> original GoGIF outputs
 ```
@@ -27,7 +27,7 @@ GoGIF does not bulk-download Wikimedia, Internet Archive, Yarn, or movie/TV cata
 
 ## Fetch and transform flow
 
-When importing is implemented, it should happen only after the user selects an item:
+Importing happens only after the user selects an item:
 
 1. Recheck the source record and license.
 2. Reject reference-only or no-derivatives items for AI transformation.
@@ -42,9 +42,11 @@ This boundary prevents a local or hosted generator adapter from becoming an arbi
 
 ## AI engines
 
-Hosted OpenAI/Google-style adapters remain possible behind the generator interface, but they are disabled and excluded from zero-spend mode. The zero-cost target is a model server running on the same computer. Model code may be free while model licenses, hardware requirements, and commercial-use terms still need review.
+Hosted OpenAI/Google-style adapters remain possible behind the generator interface, but they are disabled and excluded from zero-spend mode. The implemented zero-cost engines are Blender and a ComfyUI model server running on the same computer as GoGIF. Model code may be free while checkpoint licenses, hardware requirements, commercial-use terms, electricity, and local disk use still need review.
 
-The existing Go renderer is already offline and deterministic. It creates useful motion graphics now; a local image generator can later supply richer source frames without changing the provider, GIF encoder, or client contracts.
+The Go renderer is offline and deterministic. Blender procedurally creates original 3D source art. ComfyUI supplies richer diffusion-generated source images through its native loopback API; the Go renderer then creates the motion and GIF encoding.
+
+For a second computer, run GoGIF and ComfyUI together on that machine and reach GoGIF through a Tailscale/SSH tunnel. Keeping both processes beside the same input directory lets GoGIF prove that uploaded references were deleted. Pointing the Mac process through a tunnel at raw ComfyUI on the PC is acceptable for text-to-image, but reference transformation stays disabled unless GoGIF can access and clean the PC input directory.
 
 ## MemKV boundary
 
