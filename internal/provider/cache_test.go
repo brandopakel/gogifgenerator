@@ -26,6 +26,16 @@ func TestCachedSearchReusesPage(t *testing.T) {
 	}
 }
 
+func TestCachedReportsUnsupportedResolveOperations(t *testing.T) {
+	cached := Cached{Next: &countingProvider{}, KV: store.NewMemoryKV(), TTL: time.Minute}
+	if _, err := cached.Resolve(context.Background(), "1", "en"); err != ErrUnsupported {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if _, err := cached.ResolveQuote(context.Background(), "1", "en", "hello"); err != ErrUnsupported {
+		t.Fatalf("ResolveQuote() error = %v", err)
+	}
+}
+
 type countingProvider struct{ calls int }
 
 func (p *countingProvider) Descriptor() Descriptor {

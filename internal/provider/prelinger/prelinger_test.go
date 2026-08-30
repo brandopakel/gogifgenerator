@@ -115,6 +115,72 @@ func TestResolveReturnsStableVideoRenditionsAndCaptions(t *testing.T) {
 	}
 }
 
+func TestResolveQuoteFetchesSelectedCaptionAndAddsTimecode(t *testing.T) {
+	requests := make([]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.Path)
+		switch r.URL.Path {
+		case "/metadata/QuoteFilm":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"metadata": map[string]any{
+					"identifier": "QuoteFilm", "mediatype": "movies", "collection": "prelinger",
+					"title": "Quote Film", "licenseurl": "https://creativecommons.org/publicdomain/mark/1.0/",
+				},
+				"files": []any{
+					map[string]any{"name": "QuoteFilm.mp4", "format": "h.264", "length": "20", "source": "derivative"},
+					map[string]any{"name": "QuoteFilm.en.vtt", "format": "Web Video Text Tracks", "size": "180"},
+				},
+			})
+		case "/download/QuoteFilm/QuoteFilm.en.vtt":
+			if !strings.Contains(r.Header.Get("Accept"), "text/vtt") {
+				t.Errorf("Accept = %q", r.Header.Get("Accept"))
+			}
+			_, _ = w.Write([]byte("WEBVTT\n\n00:00:07.000 --> 00:00:09.500\nWe actually shipped it.\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	archive := newTestProvider(t, server)
+	result, err := archive.ResolveQuote(context.Background(), "QuoteFilm", "en-US", "actually shipped it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 2 || requests[0] != "/metadata/QuoteFilm" || requests[1] != "/download/QuoteFilm/QuoteFilm.en.vtt" {
+		t.Fatalf("requests = %#v", requests)
+	}
+	if result.QuoteMatch == nil || !result.QuoteMatch.Exact || result.QuoteMatch.StartMS != 7000 || result.QuoteMatch.EndMS != 9500 {
+		t.Fatalf("quote match = %#v", result.QuoteMatch)
+	}
+	if result.OriginalURL != server.URL+"/download/QuoteFilm/QuoteFilm.mp4" {
+		t.Fatalf("original URL = %q", result.OriginalURL)
+	}
+}
+
+func TestResolveQuoteKeepsPlayableItemWhenCaptionsAreMalformed(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/metadata/") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"metadata": map[string]any{"identifier": "BrokenCaptions", "mediatype": "movies", "collection": "prelinger"},
+				"files": []any{
+					map[string]any{"name": "film.mp4", "format": "h.264"},
+					map[string]any{"name": "film.vtt", "format": "Web Video Text Tracks"},
+				},
+			})
+			return
+		}
+		_, _ = w.Write([]byte("not webvtt"))
+	}))
+	defer server.Close()
+
+	archive := newTestProvider(t, server)
+	result, err := archive.ResolveQuote(context.Background(), "BrokenCaptions", "en", "some quote")
+	if err != nil || result.QuoteMatch != nil || len(result.Renditions) != 1 {
+		t.Fatalf("result = %#v; error = %v", result, err)
+	}
+}
+
 func TestResolveRejectsItemsOutsidePrelinger(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{

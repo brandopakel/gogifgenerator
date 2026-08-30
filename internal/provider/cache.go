@@ -54,11 +54,21 @@ func (c Cached) Search(ctx context.Context, query Query) (Page, error) {
 func (c Cached) Resolve(ctx context.Context, externalID, locale string) (Result, error) {
 	resolver, ok := c.Next.(Resolver)
 	if !ok {
-		return Result{}, ErrUnavailable
+		return Result{}, ErrUnsupported
 	}
 	// A selected item is deliberately revalidated upstream instead of using
 	// search cache data before a transformation fetch.
 	return resolver.Resolve(ctx, externalID, locale)
+}
+
+func (c Cached) ResolveQuote(ctx context.Context, externalID, locale, quote string) (Result, error) {
+	resolver, ok := c.Next.(QuoteResolver)
+	if !ok {
+		return Result{}, ErrUnsupported
+	}
+	// Caption lookups are selected-item operations and never use search cache
+	// data. The provider revalidates the item and current caption rendition.
+	return resolver.ResolveQuote(ctx, externalID, locale, quote)
 }
 
 func searchCacheKey(providerID string, query Query) string {

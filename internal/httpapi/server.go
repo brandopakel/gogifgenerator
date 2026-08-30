@@ -59,6 +59,7 @@ func New(options Options) http.Handler {
 	mux.HandleFunc("GET /api/v1/config", server.publicConfig)
 	mux.HandleFunc("GET /api/v1/providers/{provider}/search", server.searchProvider)
 	mux.HandleFunc("GET /api/v1/providers/{provider}/items/{id}", server.resolveProvider)
+	mux.HandleFunc("GET /api/v1/providers/{provider}/items/{id}/quote", server.resolveProviderQuote)
 	mux.HandleFunc("POST /api/v1/gifs/plan", server.plan)
 	mux.HandleFunc("POST /api/v1/gifs/generate", server.generate)
 	mux.HandleFunc("POST /api/v1/gifs/generate-from-reference", server.generateFromReference)
@@ -176,6 +177,8 @@ func (s *server) resolveProvider(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, provider.ErrInvalidQuery):
 			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, provider.ErrUnsupported):
+			writeError(w, http.StatusUnprocessableEntity, "provider does not expose item details")
 		case errors.Is(err, provider.ErrNotFound):
 			writeError(w, http.StatusNotFound, "provider item was not found")
 		case errors.Is(err, context.DeadlineExceeded):
@@ -184,6 +187,39 @@ func (s *server) resolveProvider(w http.ResponseWriter, r *http.Request) {
 			return
 		default:
 			s.options.Logger.Warn("resolve media provider item", "provider", candidate.Descriptor().ID, "id", r.PathValue("id"), "error", err)
+			writeError(w, http.StatusBadGateway, "media provider is temporarily unavailable")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *server) resolveProviderQuote(w http.ResponseWriter, r *http.Request) {
+	candidate, ok := s.providers[r.PathValue("provider")]
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown media provider")
+		return
+	}
+	resolver, ok := candidate.(provider.QuoteResolver)
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, "provider does not support quote matching")
+		return
+	}
+	result, err := resolver.ResolveQuote(r.Context(), r.PathValue("id"), r.URL.Query().Get("locale"), r.URL.Query().Get("q"))
+	if err != nil {
+		switch {
+		case errors.Is(err, provider.ErrInvalidQuery):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, provider.ErrUnsupported):
+			writeError(w, http.StatusUnprocessableEntity, "provider does not support quote matching")
+		case errors.Is(err, provider.ErrNotFound):
+			writeError(w, http.StatusNotFound, "provider item was not found")
+		case errors.Is(err, context.DeadlineExceeded):
+			writeError(w, http.StatusGatewayTimeout, "media provider timed out")
+		case errors.Is(err, context.Canceled):
+			return
+		default:
+			s.options.Logger.Warn("match provider item quote", "provider", candidate.Descriptor().ID, "id", r.PathValue("id"), "error", err)
 			writeError(w, http.StatusBadGateway, "media provider is temporarily unavailable")
 		}
 		return

@@ -224,6 +224,7 @@ async function searchPrelinger(query) {
 			href: item.source_url,
 			preview: item.preview_url,
 			title: item.title || query,
+			query,
 			note: [item.author, item.license_name || 'Check item rights'].filter(Boolean).join(' · '),
 			allowedHandling: item.allowed_handling,
 			transformPolicy: item.transform_policy,
@@ -328,8 +329,10 @@ async function toggleVideoPreview(item, card, link, image, button) {
 	button.disabled = true;
 	button.textContent = 'Loading preview…';
 	try {
-		const url = new URL(`/api/v1/providers/${encodeURIComponent(item.provider)}/items/${encodeURIComponent(item.externalID)}`, window.location.origin);
+		const itemPath = `/api/v1/providers/${encodeURIComponent(item.provider)}/items/${encodeURIComponent(item.externalID)}`;
+		const url = new URL(item.query ? `${itemPath}/quote` : itemPath, window.location.origin);
 		url.searchParams.set('locale', 'en');
+		if (item.query) url.searchParams.set('q', item.query);
 		const response = await fetch(url);
 		const payload = await response.json().catch(() => ({}));
 		if (!response.ok) throw new Error(payload.error?.message || 'Could not load this video preview.');
@@ -341,14 +344,23 @@ async function toggleVideoPreview(item, card, link, image, button) {
 		video.preload = 'metadata';
 		video.poster = item.preview;
 		video.src = rendition.url;
-		for (const caption of payload.captions || []) {
-			if (caption.format !== 'vtt') continue;
-			const track = document.createElement('track');
-			track.kind = 'captions';
-			track.src = caption.url;
-			track.srclang = caption.language || 'en';
-			track.label = (caption.language || 'Captions').toUpperCase();
-			video.append(track);
+		if (payload.quote_match) {
+			const match = payload.quote_match;
+			const startMS = match.start_ms || 0;
+			const start = Math.max(0, startMS / 1000 - 0.35);
+			const end = match.end_ms / 1000 + 0.5;
+			let stopAtMatchEnd = true;
+			video.addEventListener('loadedmetadata', () => { video.currentTime = start; }, { once: true });
+			video.addEventListener('timeupdate', () => {
+				if (stopAtMatchEnd && video.currentTime >= end) {
+					video.pause();
+					stopAtMatchEnd = false;
+				}
+			});
+			const quote = document.createElement('span');
+			quote.className = 'quote-match';
+			quote.textContent = `${match.exact ? 'Exact quote' : 'Closest quote'} · ${formatTimecode(startMS)} · “${match.text}”`;
+			card.insertBefore(quote, button);
 		}
 		card.insertBefore(video, link);
 		image.hidden = true;
@@ -359,6 +371,14 @@ async function toggleVideoPreview(item, card, link, image, button) {
 	} finally {
 		button.disabled = false;
 	}
+}
+
+function formatTimecode(milliseconds) {
+	const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor(totalSeconds / 60) % 60;
+	const seconds = String(totalSeconds % 60).padStart(2, '0');
+	return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}` : `${minutes}:${seconds}`;
 }
 
 function selectReference(item) {

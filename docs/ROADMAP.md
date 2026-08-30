@@ -8,6 +8,7 @@
 - Wikimedia Commons search through the Go provider API
 - GifCities search through the Go provider API
 - Prelinger film search and on-demand provider-hosted video previews
+- Local selected-item WebVTT/SRT quote matching and timed preview
 - Optional GIPHY search path
 - Extension development shell
 - Tests and CI

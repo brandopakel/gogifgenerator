@@ -14,6 +14,7 @@ var (
 	ErrInvalidQuery = errors.New("provider: invalid query")
 	ErrUnavailable  = errors.New("provider: unavailable")
 	ErrNotFound     = errors.New("provider: item not found")
+	ErrUnsupported  = errors.New("provider: operation unsupported")
 )
 
 const (
@@ -154,4 +155,11 @@ type Provider interface {
 type Resolver interface {
 	Provider
 	Resolve(context.Context, string, string) (Result, error)
+}
+
+// QuoteResolver searches a selected item's provider-hosted captions and adds
+// the best time-aligned quote match to the resolved result.
+type QuoteResolver interface {
+	Resolver
+	ResolveQuote(context.Context, string, string, string) (Result, error)
 }

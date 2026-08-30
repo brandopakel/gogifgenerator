@@ -23,7 +23,7 @@ There is no R2, S3, hosted database, paid model, or CDN in this path. Local oper
 
 The provider adapter returns metadata, provider-hosted thumbnails, original/source links, dimensions, author, attribution, license fields, and a conservative transformation policy. Repeat searches are cached briefly in the configured KV to reduce upstream load.
 
-GoGIF does not bulk-download Wikimedia, Internet Archive, Yarn, or movie/TV catalogs. Search availability is not permission to copy or transform a work. Results with unknown rights stay review-only; no-derivatives results stay reference-only. Prelinger video metadata is resolved only when a preview is requested, and the browser streams the provider-hosted rendition directly.
+GoGIF does not bulk-download Wikimedia, Internet Archive, Yarn, or movie/TV catalogs. Search availability is not permission to copy or transform a work. Results with unknown rights stay review-only; no-derivatives results stay reference-only. Prelinger video metadata is resolved only when a preview is requested, and the browser streams the provider-hosted rendition directly. When captions exist, the Go API temporarily reads one bounded VTT/SRT file and finds the requested quote locally; it does not retain the transcript.
 
 ## Fetch and transform flow
 

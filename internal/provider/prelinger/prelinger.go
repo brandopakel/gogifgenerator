@@ -20,6 +20,7 @@ import (
 
 	"github.com/brandopakel/gogifgenerator/internal/media"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
+	"github.com/brandopakel/gogifgenerator/internal/subtitle"
 )
 
 const (
@@ -31,6 +32,7 @@ const (
 	defaultUserAgent      = "GoGIF/0.1 (https://github.com/brandopakel/gogifgenerator)"
 	maxSearchBytes        = 4 << 20
 	maxMetadataBytes      = 12 << 20
+	maxCaptionBytes       = 8 << 20
 	maxRenditions         = 8
 	maxCaptionTracks      = 16
 )
@@ -164,46 +166,86 @@ func (p *Prelinger) Resolve(ctx context.Context, externalID, locale string) (pro
 	return result, nil
 }
 
-func (p *Prelinger) getJSON(ctx context.Context, requestURL string, maxBytes int64, destination any) error {
-	select {
-	case p.gate <- struct{}{}:
-		defer func() { <-p.gate }()
-	case <-ctx.Done():
-		return ctx.Err()
+func (p *Prelinger) ResolveQuote(ctx context.Context, externalID, locale, quote string) (provider.Result, error) {
+	quote = strings.TrimSpace(quote)
+	if quote == "" || len(quote) > 200 {
+		return provider.Result{}, fmt.Errorf("%w: quote must contain between 1 and 200 characters", provider.ErrInvalidQuery)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	result, err := p.Resolve(ctx, externalID, locale)
 	if err != nil {
-		return fmt.Errorf("prelinger: build request: %w", err)
+		return provider.Result{}, err
 	}
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", p.userAgent)
-	response, err := p.client.Do(request)
+	caption, ok := preferredCaption(result.Captions, locale)
+	if !ok {
+		return result, nil
+	}
+	data, err := p.get(ctx, caption.URL, "text/vtt, text/plain;q=0.9, */*;q=0.1", maxCaptionBytes)
 	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
+		return provider.Result{}, err
+	}
+	cues, err := subtitle.Parse(strings.NewReader(string(data)), caption.Format)
+	if err != nil {
+		// A malformed optional transcript must not hide a playable item.
+		return result, nil
+	}
+	match, ok := subtitle.Find(cues, quote)
+	if ok {
+		result.QuoteMatch = &provider.QuoteMatch{
+			Text: match.Text, StartMS: match.StartMS, EndMS: match.EndMS,
+			Exact: match.Exact, Confidence: match.Confidence,
 		}
-		return fmt.Errorf("%w: Internet Archive request: %v", provider.ErrUnavailable, err)
 	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusNotFound {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
-		return provider.ErrNotFound
-	}
-	if response.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
-		return fmt.Errorf("%w: Internet Archive returned HTTP %d", provider.ErrUnavailable, response.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
+	return result, nil
+}
+
+func (p *Prelinger) getJSON(ctx context.Context, requestURL string, maxBytes int64, destination any) error {
+	data, err := p.get(ctx, requestURL, "application/json", maxBytes)
 	if err != nil {
-		return fmt.Errorf("%w: read Internet Archive response: %v", provider.ErrUnavailable, err)
-	}
-	if int64(len(data)) > maxBytes {
-		return fmt.Errorf("%w: Internet Archive response exceeded %d bytes", provider.ErrUnavailable, maxBytes)
+		return err
 	}
 	if err := json.Unmarshal(data, destination); err != nil {
 		return fmt.Errorf("%w: decode Internet Archive response: %v", provider.ErrUnavailable, err)
 	}
 	return nil
+}
+
+func (p *Prelinger) get(ctx context.Context, requestURL, accept string, maxBytes int64) ([]byte, error) {
+	select {
+	case p.gate <- struct{}{}:
+		defer func() { <-p.gate }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("prelinger: build request: %w", err)
+	}
+	request.Header.Set("Accept", accept)
+	request.Header.Set("User-Agent", p.userAgent)
+	response, err := p.client.Do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("%w: Internet Archive request: %v", provider.ErrUnavailable, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		return nil, provider.ErrNotFound
+	}
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		return nil, fmt.Errorf("%w: Internet Archive returned HTTP %d", provider.ErrUnavailable, response.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("%w: read Internet Archive response: %v", provider.ErrUnavailable, err)
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("%w: Internet Archive response exceeded %d bytes", provider.ErrUnavailable, maxBytes)
+	}
+	return data, nil
 }
 
 type searchResponse struct {
@@ -378,6 +420,29 @@ func (p *Prelinger) captionTracks(identifier string, files []itemFile, fallbackL
 		}
 	}
 	return result
+}
+
+func preferredCaption(captions []provider.CaptionTrack, locale string) (provider.CaptionTrack, bool) {
+	wantedLanguage := strings.ToLower(strings.TrimSpace(locale))
+	if separator := strings.IndexByte(wantedLanguage, '-'); separator >= 0 {
+		wantedLanguage = wantedLanguage[:separator]
+	}
+	bestScore := -1
+	var best provider.CaptionTrack
+	for _, caption := range captions {
+		score := 0
+		if strings.EqualFold(caption.Format, "vtt") {
+			score += 2
+		}
+		language := strings.ToLower(strings.TrimSpace(caption.Language))
+		if wantedLanguage != "" && (language == wantedLanguage || strings.HasPrefix(language, wantedLanguage+"-")) {
+			score += 4
+		}
+		if score > bestScore {
+			best, bestScore = caption, score
+		}
+	}
+	return best, bestScore >= 0
 }
 
 type licenseClassification struct {

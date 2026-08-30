@@ -247,6 +247,29 @@ func TestResolveProviderItem(t *testing.T) {
 	}
 }
 
+func TestResolveProviderItemQuote(t *testing.T) {
+	fake := &recordingProvider{result: provider.Result{
+		Provider: "test", ExternalID: "clip-1", Title: "Resolved quote", Kind: media.KindVideo,
+		QuoteMatch: &provider.QuoteMatch{Text: "we shipped it", StartMS: 1200, EndMS: 3400, Exact: true, Confidence: 1},
+	}}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/providers/test/items/clip-1/quote?q=we+shipped+it&locale=en", nil)
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, Providers: []provider.Provider{fake}}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if fake.resolvedID != "clip-1" || fake.resolvedLocale != "en" || fake.resolvedQuote != "we shipped it" {
+		t.Fatalf("resolved ID = %q; locale = %q; quote = %q", fake.resolvedID, fake.resolvedLocale, fake.resolvedQuote)
+	}
+	var result provider.Result
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.QuoteMatch == nil || result.QuoteMatch.StartMS != 1200 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 type recordingSaver struct {
 	generated media.GeneratedAsset
 }
@@ -266,11 +289,19 @@ type recordingProvider struct {
 	result         provider.Result
 	resolvedID     string
 	resolvedLocale string
+	resolvedQuote  string
 }
 
 func (p *recordingProvider) Resolve(_ context.Context, externalID, locale string) (provider.Result, error) {
 	p.resolvedID = externalID
 	p.resolvedLocale = locale
+	return p.result, nil
+}
+
+func (p *recordingProvider) ResolveQuote(_ context.Context, externalID, locale, quote string) (provider.Result, error) {
+	p.resolvedID = externalID
+	p.resolvedLocale = locale
+	p.resolvedQuote = quote
 	return p.result, nil
 }
 

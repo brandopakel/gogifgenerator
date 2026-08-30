@@ -16,6 +16,7 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Free Wikimedia Commons search through a normalized, rights-aware provider adapter
 - Free GifCities search across Internet Archive's archived GeoCities GIF index
 - Free Prelinger archival-film search with item-specific license normalization and on-demand, provider-hosted video previews
+- Local WebVTT/SRT quote matching that jumps a selected Prelinger preview to the matching timecode
 - Allowlisted, size-bounded temporary Wikimedia reference fetching with deletion after each job
 - Optional direct-to-GIPHY search integration with required attribution
 - MemKV-backed asset catalog with an ephemeral zero-config fallback
@@ -98,6 +99,7 @@ The GIF bytes go to content-addressed blob storage; MemKV holds the searchable r
 | `GET` | `/api/v1/providers/gifcities/search?q=...` | Search GifCities and return source-linked archived GIFs |
 | `GET` | `/api/v1/providers/prelinger/search?q=...` | Search Prelinger archival films without downloading video |
 | `GET` | `/api/v1/providers/{provider}/items/{id}` | Revalidate an item and resolve its current renditions/captions |
+| `GET` | `/api/v1/providers/{provider}/items/{id}/quote?q=...` | Match a quote against selected-item captions and return its time range |
 | `GET` | `/api/v1/gifs/{id}` | Serve an original GoGIF asset when persistent local storage is enabled |
 | `POST` | `/api/v1/gifs/plan` | Inspect the prompt-derived animation plan |
 | `POST` | `/api/v1/gifs/generate` | Stream an `image/gif` response |
