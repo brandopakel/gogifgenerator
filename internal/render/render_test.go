@@ -114,3 +114,32 @@ func TestEditedImageGIFRejectsInvalidEditorOptions(t *testing.T) {
 		t.Fatal("EditedImageGIF() expected an error")
 	}
 }
+
+func TestAdaptivePalettePreservesSmoothColorDetail(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 128, 64))
+	for y := range source.Bounds().Dy() {
+		for x := range source.Bounds().Dx() {
+			source.SetNRGBA(x, y, color.NRGBA{
+				R: uint8(40 + x), G: uint8(30 + y*2), B: uint8(210 - x), A: 255,
+			})
+		}
+	}
+	frame := palettedFrame(source)
+	if len(frame.Palette) < 128 {
+		t.Fatalf("adaptive palette contains %d colors", len(frame.Palette))
+	}
+	var squaredError uint64
+	for y := range source.Bounds().Dy() {
+		for x := range source.Bounds().Dx() {
+			expected := source.NRGBAAt(x, y)
+			actual := color.NRGBAModel.Convert(frame.At(x, y)).(color.NRGBA)
+			for _, difference := range []int{int(expected.R) - int(actual.R), int(expected.G) - int(actual.G), int(expected.B) - int(actual.B)} {
+				squaredError += uint64(difference * difference)
+			}
+		}
+	}
+	meanSquaredError := squaredError / uint64(source.Bounds().Dx()*source.Bounds().Dy()*3)
+	if meanSquaredError > 80 {
+		t.Fatalf("mean squared color error = %d", meanSquaredError)
+	}
+}

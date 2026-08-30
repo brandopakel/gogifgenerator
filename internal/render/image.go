@@ -3,14 +3,12 @@ package render
 import (
 	"errors"
 	"image"
-	"image/color"
-	"image/color/palette"
-	"image/draw"
 	"image/gif"
 	"io"
 	"math"
 
 	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
+	"golang.org/x/image/draw"
 )
 
 // ImageGIF turns an original generated still into a lightweight animated GIF.
@@ -62,7 +60,6 @@ func EditedImageGIF(w io.Writer, source image.Image, input gifdomain.Spec, optio
 	if err != nil {
 		return err
 	}
-	outputPalette := imagePalette()
 	animation := &gif.GIF{
 		Image:     make([]*image.Paletted, 0, spec.Frames),
 		Delay:     make([]int, 0, spec.Frames),
@@ -74,8 +71,7 @@ func EditedImageGIF(w io.Writer, source image.Image, input gifdomain.Spec, optio
 		zoom, panX, panY := imageMotion(spec.Motion, progress)
 		trueColor := image.NewNRGBA(image.Rect(0, 0, spec.Width, spec.Height))
 		drawCover(trueColor, source, zoom*options.Zoom, combinePan(options.CropX, panX), combinePan(options.CropY, panY))
-		frame := image.NewPaletted(trueColor.Bounds(), outputPalette)
-		draw.FloydSteinberg.Draw(frame, frame.Rect, trueColor, image.Point{})
+		frame := palettedFrame(trueColor)
 		if spec.Motion == "confetti" {
 			drawConfetti(frame, frameNumber, spec.Frames, spec.Seed)
 		}
@@ -112,14 +108,12 @@ func EditedGIF(w io.Writer, source *gif.GIF, input gifdomain.Spec, options EditO
 		Image: make([]*image.Paletted, 0, frameCount), Delay: make([]int, 0, frameCount),
 		Disposal: make([]byte, 0, frameCount), LoopCount: loopCount(options.Loop),
 	}
-	outputPalette := imagePalette()
 	for frameNumber := range frameCount {
 		progress := float64(frameNumber) / float64(frameCount)
 		zoom, panX, panY := imageMotion(spec.Motion, progress)
 		trueColor := image.NewNRGBA(image.Rect(0, 0, spec.Width, spec.Height))
 		drawCover(trueColor, composited[frameNumber], zoom*options.Zoom, combinePan(options.CropX, panX), combinePan(options.CropY, panY))
-		frame := image.NewPaletted(trueColor.Bounds(), outputPalette)
-		draw.FloydSteinberg.Draw(frame, frame.Rect, trueColor, image.Point{})
+		frame := palettedFrame(trueColor)
 		if spec.Motion == "confetti" {
 			drawConfetti(frame, frameNumber, frameCount, spec.Seed)
 		}
@@ -213,22 +207,17 @@ func drawCover(destination *image.NRGBA, source image.Image, zoom, panX, panY fl
 	marginX, marginY := sourceWidth-cropWidth, sourceHeight-cropHeight
 	startX := float64(sourceBounds.Min.X) + marginX*(panX+1)/2
 	startY := float64(sourceBounds.Min.Y) + marginY*(panY+1)/2
-	for y := 0; y < destination.Bounds().Dy(); y++ {
-		sourceY := startY + (float64(y)+0.5)*cropHeight/destinationHeight
-		for x := 0; x < destination.Bounds().Dx(); x++ {
-			sourceX := startX + (float64(x)+0.5)*cropWidth/destinationWidth
-			destination.Set(x, y, source.At(
-				min(sourceBounds.Max.X-1, max(sourceBounds.Min.X, int(sourceX))),
-				min(sourceBounds.Max.Y-1, max(sourceBounds.Min.Y, int(sourceY))),
-			))
-		}
+	crop := image.Rect(
+		max(sourceBounds.Min.X, int(math.Floor(startX))),
+		max(sourceBounds.Min.Y, int(math.Floor(startY))),
+		min(sourceBounds.Max.X, int(math.Ceil(startX+cropWidth))),
+		min(sourceBounds.Max.Y, int(math.Ceil(startY+cropHeight))),
+	)
+	if crop.Dx() < 1 {
+		crop.Max.X = min(sourceBounds.Max.X, crop.Min.X+1)
 	}
-}
-
-func imagePalette() color.Palette {
-	result := make(color.Palette, 0, 256)
-	result = append(result, color.RGBA{A: 255})
-	result = append(result, palette.Plan9[:254]...)
-	result = append(result, color.RGBA{R: 255, G: 255, B: 255, A: 255})
-	return result
+	if crop.Dy() < 1 {
+		crop.Max.Y = min(sourceBounds.Max.Y, crop.Min.Y+1)
+	}
+	draw.CatmullRom.Scale(destination, destination.Bounds(), source, crop, draw.Src, nil)
 }

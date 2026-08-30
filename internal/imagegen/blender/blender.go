@@ -68,7 +68,7 @@ func (g *Generator) Generate(ctx context.Context, request imagegen.Request) (ima
 	scriptPath := filepath.Join(directory, "scene.py")
 	outputPath := filepath.Join(directory, "output.png")
 	requestData, _ := json.Marshal(map[string]any{
-		"prompt": request.Prompt, "width": request.Width, "height": request.Height, "seed": request.Seed,
+		"width": request.Width, "height": request.Height, "seed": request.Seed,
 	})
 	if err := os.WriteFile(requestPath, requestData, 0o600); err != nil {
 		return imagegen.Result{}, fmt.Errorf("blender: write request: %w", err)
