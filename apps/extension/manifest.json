@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "GoGIF Dev",
+  "description": "Create a GIF from the browser toolbar with the local GoGIF engine.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Create with GoGIF",
+    "default_popup": "popup.html"
+  },
+  "host_permissions": ["http://localhost:8080/*"]
+}

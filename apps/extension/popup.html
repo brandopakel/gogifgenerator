@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="popup.css">
+    <title>GoGIF</title>
+  </head>
+  <body>
+    <header><span class="mark"></span><strong>GoGIF</strong><small>DEV</small></header>
+    <form id="form">
+      <label for="prompt">Make the moment move</label>
+      <textarea id="prompt" maxlength="500" placeholder="A flawless deploy..." required></textarea>
+      <button id="make" type="submit">Make it →</button>
+    </form>
+    <p id="status">Local engine · localhost:8080</p>
+    <img id="preview" alt="Generated GIF" hidden>
+    <a id="download" download="gogif.gif" hidden>Download GIF</a>
+    <script src="popup.js"></script>
+  </body>
+</html>

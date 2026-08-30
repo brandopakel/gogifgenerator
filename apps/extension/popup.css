@@ -1,0 +1,16 @@
+:root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { width: 330px; min-height: 260px; margin: 0; padding: 18px; background: #111318; color: #f7f7f2; }
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 25px; }
+header strong { font-size: 17px; letter-spacing: -.04em; }
+header small { margin-left: auto; color: #8b8e94; font-size: 9px; letter-spacing: .15em; }
+.mark { width: 15px; height: 15px; background: #e8ff47; box-shadow: 6px 6px 0 #ff5c8a; transform: rotate(8deg); }
+form { display: grid; gap: 10px; }
+label { color: #e8ff47; font-size: 11px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+textarea { min-height: 78px; resize: vertical; padding: 12px; border: 1px solid #343841; border-radius: 10px; outline: none; background: #191c22; color: inherit; font: inherit; }
+textarea:focus { border-color: #e8ff47; }
+button, a { display: grid; min-height: 42px; place-items: center; border: 0; border-radius: 9px; background: #e8ff47; color: #111318; font: inherit; font-weight: 850; text-decoration: none; cursor: pointer; }
+button:disabled { opacity: .55; }
+#status { color: #7f8289; font-size: 10px; }
+#preview { display: block; width: 100%; margin: 13px 0; border-radius: 10px; background: #08090b; }
+#download { background: #f7f7f2; }
