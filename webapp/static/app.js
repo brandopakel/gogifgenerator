@@ -19,7 +19,6 @@ const elements = {
   searchTitle: document.querySelector('#search-title'),
   searchMessage: document.querySelector('#search-message'),
   searchResults: document.querySelector('#search-results'),
-  giphyCredit: document.querySelector('#giphy-credit'),
   install: document.querySelector('#install-button'),
   toast: document.querySelector('#toast'),
 };
@@ -111,43 +110,110 @@ async function generate(prompt, reroll = false) {
 async function search(query) {
   elements.searchResults.replaceChildren();
   elements.searchMessage.hidden = false;
-  elements.searchMessage.textContent = 'Searching the GIFverse…';
+  elements.searchMessage.textContent = 'Searching open media…';
   elements.searchTitle.textContent = `“${query}”`;
+
+	const searches = [searchWikimedia(query)];
   const apiKey = state.config?.giphy_api_key;
-  if (!apiKey) {
-    elements.searchMessage.textContent = 'Add GIPHY_API_KEY to the server environment to enable licensed catalog search.';
-    return;
+	if (apiKey) searches.push(searchGiphy(query, apiKey));
+
+	const settled = await Promise.allSettled(searches);
+	let resultCount = 0;
+	const failures = [];
+	for (const outcome of settled) {
+		if (outcome.status === 'rejected') {
+			failures.push(outcome.reason.message);
+			continue;
+		}
+		if (outcome.value.items.length) {
+			resultCount += outcome.value.items.length;
+			renderProvider(outcome.value);
+		}
   }
-  try {
-    const url = new URL('https://api.giphy.com/v1/gifs/search');
-    url.search = new URLSearchParams({ api_key: apiKey, q: query, limit: '24', rating: 'pg-13', lang: 'en', bundle: 'messaging_non_clips' });
-    const response = await fetch(url);
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.meta?.msg || 'GIF search failed.');
-    elements.giphyCredit.hidden = false;
-    elements.searchMessage.hidden = payload.data.length > 0;
-    if (!payload.data.length) elements.searchMessage.textContent = 'No matches yet. Try a broader feeling or reaction.';
-    for (const item of payload.data) {
-      const preview = item.images.fixed_width_small || item.images.fixed_width || item.images.original;
-      const original = item.images.original;
-      const link = document.createElement('a');
-      link.className = 'search-card';
-      link.href = original.url;
-      link.target = '_blank';
-      link.rel = 'noreferrer';
-      link.title = item.title || query;
-      const image = document.createElement('img');
-      image.src = preview.webp || preview.url;
-      image.alt = item.title || `${query} GIF`;
-      image.loading = 'lazy';
-      link.append(image);
-      elements.searchResults.append(link);
-    }
-    elements.searchPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  } catch (error) {
-    elements.searchMessage.hidden = false;
-    elements.searchMessage.textContent = error.message;
-  }
+	if (resultCount) {
+		elements.searchMessage.hidden = true;
+	} else {
+		elements.searchMessage.hidden = false;
+		elements.searchMessage.textContent = failures[0] || 'No matches yet. Try a broader feeling, action, or subject.';
+	}
+	elements.searchPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function searchWikimedia(query) {
+	const url = new URL('/api/v1/providers/wikimedia/search', window.location.origin);
+	url.search = new URLSearchParams({ q: query, limit: '18', locale: 'en' });
+	const response = await fetch(url);
+	const payload = await response.json().catch(() => ({}));
+	if (!response.ok) throw new Error(payload.error?.message || 'Wikimedia Commons search failed.');
+	return {
+		label: 'Wikimedia Commons',
+		credit: 'OPEN MEDIA · CHECK EACH LICENSE',
+		items: payload.results.map((item) => ({
+			href: item.source_url,
+			preview: item.preview_url,
+			title: item.title || query,
+			note: [item.author, item.license_name].filter(Boolean).join(' · '),
+		})),
+	};
+}
+
+async function searchGiphy(query, apiKey) {
+	const url = new URL('https://api.giphy.com/v1/gifs/search');
+	url.search = new URLSearchParams({ api_key: apiKey, q: query, limit: '18', rating: 'pg-13', lang: 'en', bundle: 'messaging_non_clips' });
+	const response = await fetch(url);
+	const payload = await response.json().catch(() => ({}));
+	if (!response.ok) throw new Error(payload.meta?.msg || 'GIPHY search failed.');
+	return {
+		label: 'GIPHY',
+		credit: 'POWERED BY GIPHY',
+		items: payload.data.map((item) => {
+			const preview = item.images.fixed_width_small || item.images.fixed_width || item.images.original;
+			return {
+				href: item.url || item.images.original.url,
+				preview: preview.webp || preview.url,
+				title: item.title || query,
+				note: item.user?.display_name || '',
+			};
+		}),
+	};
+}
+
+function renderProvider(result) {
+	const section = document.createElement('section');
+	section.className = 'provider-section';
+	const heading = document.createElement('div');
+	heading.className = 'provider-heading';
+	const title = document.createElement('h3');
+	title.textContent = result.label;
+	const credit = document.createElement('span');
+	credit.textContent = result.credit;
+	heading.append(title, credit);
+	const grid = document.createElement('div');
+	grid.className = 'search-grid';
+	for (const item of result.items) grid.append(searchCard(item));
+	section.append(heading, grid);
+	elements.searchResults.append(section);
+}
+
+function searchCard(item) {
+	const link = document.createElement('a');
+	link.className = 'search-card';
+	link.href = item.href;
+	link.target = '_blank';
+	link.rel = 'noreferrer';
+	link.title = item.title;
+	const image = document.createElement('img');
+	image.src = item.preview;
+	image.alt = item.title;
+	image.loading = 'lazy';
+	link.append(image);
+	if (item.note) {
+		const copy = document.createElement('span');
+		copy.className = 'search-card-copy';
+		copy.textContent = item.note;
+		link.append(copy);
+	}
+	return link;
 }
 
 function setWorking(working) {

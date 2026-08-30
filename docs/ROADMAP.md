@@ -5,7 +5,8 @@
 - Prompt-to-GIF vertical slice
 - Offline and AI-directed planning
 - Responsive installable PWA
-- GIPHY search path
+- Wikimedia Commons search through the Go provider API
+- Optional GIPHY search path
 - Extension development shell
 - Tests and CI
 
@@ -57,7 +58,8 @@ Exit condition: the same account, projects, and generation API work across suppo
 ## Milestone 5 — high-powered engine
 
 - Asynchronous render jobs and progress events
-- Object storage, CDN delivery, lifecycle policies, and reproducible projects
+- Reproducible projects and local storage lifecycle policies
+- Optional object storage/CDN only for a funded hosted service
 - Isolated CPU/GPU worker pools and renderer capability negotiation
 - Animated WebP/AVIF and MP4 alongside GIF
 - Rate limits, budgets, abuse prevention, moderation, and enterprise controls

@@ -14,12 +14,14 @@ The input and result surfaces are shared. The systems behind them are deliberate
 | Boundary | Responsibility | Current implementation |
 | --- | --- | --- |
 | `internal/planner` | Prompt → validated animation spec | Offline deterministic planner; optional OpenAI adapter |
+| `internal/imagegen` | Prompt/reference images → generated still image | Vendor-neutral contract; local adapter is the zero-cost target |
 | `internal/gif` | Stable domain contract and safety bounds | Dimensions, timing, palette, motion, caption |
 | `internal/render` | Animation spec → encoded asset | Pure-Go indexed-color GIF renderer |
 | `internal/media` | Asset, rendition, provenance, and rights catalog | Validated JSON records persisted through the KV boundary |
 | `internal/store` | Metadata and binary persistence seams | MemKV RESP adapter, memory KV, content-addressed filesystem blobs |
+| `internal/provider` | Federated discovery and rights normalization | Cached provider contract and Wikimedia Commons adapter |
 | `internal/httpapi` | Public client contract | Standard-library HTTP server and embedded PWA |
-| `webapp` | Universal interaction surface | Responsive PWA and direct licensed search |
+| `webapp` | Universal interaction surface | Responsive PWA with sectioned provider search |
 | `apps/extension` | Browser toolbar surface | Local-development MV3 client |
 
 No package outside `internal/planner` knows which AI provider made a plan. No planner knows how pixels are rendered. This is the most important seam in the system.
@@ -39,13 +41,13 @@ The extraction points are already explicit:
 
 The model is an art director, not an unchecked code generator. It chooses only a short caption, five validated colors, and one renderer-supported motion. Strict schema output plus domain validation prevents unexpected fields and bounds compute.
 
-When `OPENAI_API_KEY` is absent, the local planner hashes the prompt into a deterministic plan. When the remote planner fails, the same local planner becomes an availability fallback. A response header identifies which engine produced each GIF.
+Unless both `GOGIF_ENABLE_PAID_AI=true` and `OPENAI_API_KEY` are present, the local planner hashes the prompt into a deterministic plan. This explicit opt-in prevents an unrelated shell key from creating project charges. When the remote planner fails, the same local planner becomes an availability fallback. A response header identifies which engine produced each GIF.
 
 Never send the OpenAI key to a client. In a multi-user deployment, add authentication, per-user quotas, abuse controls, and stable privacy-safe safety identifiers before opening the generation endpoint publicly.
 
 ## Search
 
-Search is a federation problem, not a web-crawling problem. Each provider adapter must own:
+Search is a federation problem, not a web-crawling problem. The Go API currently exposes Wikimedia Commons through a normalized adapter, caches repeat queries for fifteen minutes, and links to provider-hosted media rather than mirroring it. Each provider adapter must own:
 
 - terms and attribution compliance;
 - platform-specific credentials;
@@ -54,7 +56,13 @@ Search is a federation problem, not a web-crawling problem. Each provider adapte
 - share/view analytics required by the provider;
 - pagination, caching, and rate-limit behavior.
 
-GIPHY currently requires calls to be made from the client. The PWA therefore receives a GIPHY platform key through public runtime configuration and calls GIPHY directly. Private-library search will use the Go API.
+GIPHY currently requires calls to be made from the client. When explicitly configured, the PWA receives a GIPHY platform key through public runtime configuration and shows those results in a separate, attributed section. Private-library search will use the Go API.
+
+## Zero-spend operation
+
+The default topology runs on the user's computer: one Go process, an in-memory catalog, local file bytes, Wikimedia's public API, and no hosted AI calls. MemKV can be enabled locally for persistent catalog records without modifying the MemKV repository. A future local image-model adapter will implement `internal/imagegen`; it receives validated bytes from a controlled importer, never an arbitrary URL.
+
+Cloud object storage, managed databases, remote GPU workers, and hosted model APIs are optional deployment choices, not prerequisites. A public multi-user service cannot promise zero ongoing cost because its compute, bandwidth, and storage must run somewhere.
 
 ## Rendering evolution
 
@@ -62,10 +70,9 @@ The pure-Go renderer is fast to ship and universally buildable. It intentionally
 
 ## Deployment path
 
-1. One Go container behind TLS, with timeouts and an API key stored server-side.
-2. CDN for the PWA shell; managed object storage for generated assets.
-3. MemKV for asset records, indexes, TTL state, and render jobs, with AOF durability and automated backups.
-4. Horizontally scaled API and CPU/GPU worker pools with signed upload/download URLs.
-5. Regional search/API edges only after provider policies and real latency data justify them.
+1. Local/self-hosted Go binary with local files and optional local MemKV.
+2. Local image-model process behind the `internal/imagegen` contract.
+3. Only if a funded public service is later approved: TLS hosting, managed object storage, backups, and quotas.
+4. Only after measured demand: horizontally scaled API and CPU/GPU workers.
 
 The browser is not a trusted boundary. Before public launch, add authentication, CSRF strategy if cookies are used, quotas, moderation, asset expiry, privacy controls, and structured observability.

@@ -2,16 +2,17 @@
 
 **One prompt. The right GIF—made or found.**
 
-GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at home in a browser, an installed phone/desktop PWA, and a browser extension. The current repository is a working vertical slice: enter an idea, receive a real animated GIF, download it, or search a licensed GIF catalog when a GIPHY key is configured.
+GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at home in a browser, an installed phone/desktop PWA, and a browser extension. The current repository is a working vertical slice: enter an idea, receive a real animated GIF, download it, or search Wikimedia Commons with no account or API key.
 
 ## What works now
 
 - Pure-Go animated GIF renderer with orbit, pulse, wave, and confetti motion systems
 - Natural-language art planning with a deterministic offline planner
-- Optional OpenAI art direction through the Responses API and strict structured output
+- Optional, disabled-by-default OpenAI art direction through the Responses API and strict structured output
 - Automatic local fallback if the AI provider is unavailable
 - Responsive, installable PWA embedded in the Go binary
-- Direct-to-GIPHY search integration with required attribution
+- Free Wikimedia Commons search through a normalized, rights-aware provider adapter
+- Optional direct-to-GIPHY search integration with required attribution
 - MemKV-backed asset catalog with an ephemeral zero-config fallback
 - Content-addressed local blob storage for generated media
 - Browser-extension development shell
@@ -27,15 +28,24 @@ make run
 
 Open <http://localhost:8080>. No account or API key is required for local GIF creation.
 
-To turn on AI-directed planning:
+This is the zero-spend mode: local Go rendering, Wikimedia discovery, in-memory metadata, and local filesystem output. It does not provision cloud storage or call a paid AI API. See [Zero-cost architecture](docs/ZERO_COST_ARCHITECTURE.md).
+
+GoGIF is a connector, not a GIF warehouse: existing catalog media stays on its source host. Only original GoGIF outputs (and explicit user uploads) enter managed local storage. A licensed reference used for generation is temporary and is deleted after the new output is created.
+
+### Optional external services
+
+The following integrations are off by default. Enabling a hosted AI account can incur charges, so they are not part of the zero-spend path. To explicitly turn on OpenAI-directed planning:
 
 ```sh
 export OPENAI_API_KEY="your-project-key"
 export OPENAI_MODEL="gpt-5-mini"
+export GOGIF_ENABLE_PAID_AI="true"
 make run
 ```
 
-To enable catalog search, create a platform-specific GIPHY API key and run:
+GoGIF ignores `OPENAI_API_KEY` unless `GOGIF_ENABLE_PAID_AI=true` is also set.
+
+To add GIPHY results, create a platform-specific GIPHY API key and run:
 
 ```sh
 export GIPHY_API_KEY="your-giphy-key"
@@ -60,6 +70,8 @@ The GIF bytes go to content-addressed blob storage; MemKV holds the searchable r
 | --- | --- | --- |
 | `GET` | `/api/health` | Readiness and engine status |
 | `GET` | `/api/v1/config` | Public client capabilities |
+| `GET` | `/api/v1/providers/wikimedia/search?q=...` | Search Wikimedia Commons with normalized rights metadata |
+| `GET` | `/api/v1/gifs/{id}` | Serve an original GoGIF asset when persistent local storage is enabled |
 | `POST` | `/api/v1/gifs/plan` | Inspect the prompt-derived animation plan |
 | `POST` | `/api/v1/gifs/generate` | Stream an `image/gif` response |
 
@@ -78,11 +90,10 @@ The first release is intentionally a modular monolith:
 
 ```text
 phone / desktop PWA ─┐
-browser extension ───┼──> Go HTTP API ──> art planner ──> pure-Go renderer
-web browser ─────────┘                    ├─ local          └─ animated GIF
-                                         └─ OpenAI
-
-web search client ─────────────────────────> licensed catalog APIs
+browser extension ───┼──> Go HTTP API ──┬─> art planner ──> pure-Go renderer
+web browser ─────────┘                   │   ├─ local          └─ animated GIF
+                                        │   └─ optional hosted adapter
+                                        └─> provider adapters ──> Wikimedia Commons
 ```
 
 The planner speaks a small, validated animation-spec contract. That keeps model vendors, renderers, and future native clients replaceable. The OpenAI adapter uses the Responses API with Structured Outputs, following the [official OpenAI API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).

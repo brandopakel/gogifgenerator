@@ -8,46 +8,59 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/brandopakel/gogifgenerator/internal/media"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
+	"github.com/brandopakel/gogifgenerator/internal/provider"
 	"github.com/brandopakel/gogifgenerator/internal/render"
 	"github.com/brandopakel/gogifgenerator/internal/store"
 	"github.com/brandopakel/gogifgenerator/webapp"
 )
 
 type Options struct {
-	Planner        planner.Planner
-	Logger         *slog.Logger
-	AIEnabled      bool
-	AIModel        string
-	GiphyAPIKey    string
-	Catalog        store.KV
-	CatalogBackend string
-	GeneratedSaver media.GeneratedSaver
+	Planner         planner.Planner
+	Logger          *slog.Logger
+	AIEnabled       bool
+	AIModel         string
+	GiphyAPIKey     string
+	Catalog         store.KV
+	CatalogBackend  string
+	GeneratedSaver  media.GeneratedSaver
+	GeneratedReader media.GeneratedReader
+	Providers       []provider.Provider
 }
 
 func New(options Options) http.Handler {
 	if options.Logger == nil {
 		options.Logger = slog.Default()
 	}
-	server := &server{options: options}
+	server := &server{options: options, providers: make(map[string]provider.Provider)}
+	for _, candidate := range options.Providers {
+		if candidate != nil && candidate.Descriptor().ID != "" {
+			server.providers[candidate.Descriptor().ID] = candidate
+		}
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", server.health)
 	mux.HandleFunc("GET /api/v1/config", server.publicConfig)
+	mux.HandleFunc("GET /api/v1/providers/{provider}/search", server.searchProvider)
 	mux.HandleFunc("POST /api/v1/gifs/plan", server.plan)
 	mux.HandleFunc("POST /api/v1/gifs/generate", server.generate)
+	mux.HandleFunc("GET /api/v1/gifs/{id}", server.generated)
 	mux.Handle("/", staticHandler())
 	return server.securityHeaders(server.accessLog(mux))
 }
 
 type server struct {
-	options Options
+	options   Options
+	providers map[string]provider.Provider
 }
 
 func (s *server) health(w http.ResponseWriter, r *http.Request) {
@@ -84,12 +97,57 @@ func (s *server) publicConfig(w http.ResponseWriter, _ *http.Request) {
 		{"id": "generated", "label": "Created here", "enabled": true},
 		{"id": "giphy", "label": "GIPHY", "enabled": s.options.GiphyAPIKey != ""},
 	}
+	for _, candidate := range s.options.Providers {
+		if candidate == nil {
+			continue
+		}
+		descriptor := candidate.Descriptor()
+		providers = append(providers, map[string]any{"id": descriptor.ID, "label": descriptor.Label, "enabled": true})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"planner":       mode,
 		"model":         s.options.AIModel,
 		"giphy_api_key": s.options.GiphyAPIKey,
 		"providers":     providers,
 	})
+}
+
+func (s *server) searchProvider(w http.ResponseWriter, r *http.Request) {
+	candidate, ok := s.providers[r.PathValue("provider")]
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown media provider")
+		return
+	}
+	limit := 0
+	if rawLimit := r.URL.Query().Get("limit"); rawLimit != "" {
+		var err error
+		limit, err = strconv.Atoi(rawLimit)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "limit must be a number")
+			return
+		}
+	}
+	page, err := candidate.Search(r.Context(), provider.Query{
+		Text:   r.URL.Query().Get("q"),
+		Limit:  limit,
+		Cursor: r.URL.Query().Get("cursor"),
+		Locale: r.URL.Query().Get("locale"),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, provider.ErrInvalidQuery):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, context.DeadlineExceeded):
+			writeError(w, http.StatusGatewayTimeout, "media provider timed out")
+		case errors.Is(err, context.Canceled):
+			return
+		default:
+			s.options.Logger.Warn("search media provider", "provider", candidate.Descriptor().ID, "error", err)
+			writeError(w, http.StatusBadGateway, "media provider is temporarily unavailable")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (s *server) plan(w http.ResponseWriter, r *http.Request) {
@@ -132,6 +190,7 @@ func (s *server) generate(w http.ResponseWriter, r *http.Request) {
 			s.options.Logger.Warn("save generated GIF", "error", err)
 		} else {
 			w.Header().Set("X-GoGIF-Asset-ID", asset.ID)
+			w.Header().Set("Location", "/api/v1/gifs/"+asset.ID)
 		}
 	}
 	w.Header().Set("Content-Type", "image/gif")
@@ -141,6 +200,30 @@ func (s *server) generate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(output.Bytes()); err != nil {
 		s.options.Logger.Error("write GIF response", "error", err)
+	}
+}
+
+func (s *server) generated(w http.ResponseWriter, r *http.Request) {
+	if s.options.GeneratedReader == nil {
+		http.NotFound(w, r)
+		return
+	}
+	asset, reader, err := s.options.GeneratedReader.OpenGenerated(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		s.options.Logger.Error("open generated GIF", "id", r.PathValue("id"), "error", err)
+		writeError(w, http.StatusInternalServerError, "could not read generated GIF")
+		return
+	}
+	defer reader.Close()
+	w.Header().Set("Content-Type", "image/gif")
+	w.Header().Set("Content-Disposition", `inline; filename="`+asset.ID+`.gif"`)
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	if _, err := io.Copy(w, reader); err != nil {
+		s.options.Logger.Error("serve generated GIF", "id", asset.ID, "error", err)
 	}
 }
 
@@ -191,7 +274,7 @@ func (s *server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data: https://*.giphy.com; connect-src 'self' https://api.giphy.com; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data: https://*.giphy.com https://upload.wikimedia.org; connect-src 'self' https://api.giphy.com; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
 }

@@ -2,6 +2,8 @@ package media
 
 import (
 	"context"
+	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -47,4 +49,27 @@ func TestLibrarySavesGeneratedBytesAndCatalogRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = reader.Close()
+
+	assetFromLibrary, generatedReader, err := library.OpenGenerated(ctx, asset.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generatedBytes, err := io.ReadAll(generatedReader)
+	_ = generatedReader.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assetFromLibrary.ID != asset.ID || string(generatedBytes) != "GIF89a-test" {
+		t.Fatalf("OpenGenerated() = %#v, %q", assetFromLibrary, generatedBytes)
+	}
+
+	external := asset
+	external.ID = "gif_external"
+	external.Provenance.Provider = "wikimedia"
+	if err := repository.Put(ctx, external); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := library.OpenGenerated(ctx, external.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("OpenGenerated(external) error = %v, want ErrNotFound", err)
+	}
 }

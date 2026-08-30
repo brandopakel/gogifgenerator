@@ -14,6 +14,8 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/httpapi"
 	"github.com/brandopakel/gogifgenerator/internal/media"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
+	"github.com/brandopakel/gogifgenerator/internal/provider"
+	"github.com/brandopakel/gogifgenerator/internal/provider/wikimedia"
 	"github.com/brandopakel/gogifgenerator/internal/store"
 )
 
@@ -22,7 +24,8 @@ func main() {
 	settings := config.Load()
 	localPlanner := planner.Local{}
 	var animationPlanner planner.Planner = localPlanner
-	if settings.OpenAIAPIKey != "" {
+	paidAIEnabled := settings.PaidAIEnabled && settings.OpenAIAPIKey != ""
+	if paidAIEnabled {
 		animationPlanner = planner.WithFallback{
 			Primary: planner.OpenAI{
 				APIKey:  settings.OpenAIAPIKey,
@@ -39,6 +42,7 @@ func main() {
 	var catalog store.KV = store.NewMemoryKV()
 	catalogBackend := "memory"
 	var generatedSaver media.GeneratedSaver
+	var generatedReader media.GeneratedReader
 	if settings.MemKVAddress != "" {
 		memkv, err := store.NewMemKV(settings.MemKVAddress)
 		if err != nil {
@@ -60,18 +64,30 @@ func main() {
 		}
 		catalog = memkv
 		catalogBackend = "memkv"
-		generatedSaver = media.NewLibrary(media.NewRepository(catalog), blobs)
+		library := media.NewLibrary(media.NewRepository(catalog), blobs)
+		generatedSaver = library
+		generatedReader = library
+	}
+	commons, err := wikimedia.New(wikimedia.Options{})
+	if err != nil {
+		logger.Error("configure Wikimedia Commons", "error", err)
+		os.Exit(1)
+	}
+	mediaProviders := []provider.Provider{
+		provider.Cached{Next: commons, KV: catalog, TTL: 15 * time.Minute},
 	}
 
 	handler := httpapi.New(httpapi.Options{
-		Planner:        animationPlanner,
-		Logger:         logger,
-		AIEnabled:      settings.OpenAIAPIKey != "",
-		AIModel:        settings.OpenAIModel,
-		GiphyAPIKey:    settings.GiphyAPIKey,
-		Catalog:        catalog,
-		CatalogBackend: catalogBackend,
-		GeneratedSaver: generatedSaver,
+		Planner:         animationPlanner,
+		Logger:          logger,
+		AIEnabled:       paidAIEnabled,
+		AIModel:         settings.OpenAIModel,
+		GiphyAPIKey:     settings.GiphyAPIKey,
+		Catalog:         catalog,
+		CatalogBackend:  catalogBackend,
+		GeneratedSaver:  generatedSaver,
+		GeneratedReader: generatedReader,
+		Providers:       mediaProviders,
 	})
 	server := &http.Server{
 		Addr:              settings.Address,
@@ -93,7 +109,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("GoGIF is ready", "url", httpapi.AddressURL(settings.Address), "ai", settings.OpenAIAPIKey != "", "catalog", catalogBackend)
+	logger.Info("GoGIF is ready", "url", httpapi.AddressURL(settings.Address), "ai", paidAIEnabled, "catalog", catalogBackend)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)

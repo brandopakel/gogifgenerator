@@ -107,12 +107,18 @@ textarea::placeholder { color: #70737a; }
 select { width: 100%; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); }
 
 .search-workspace { min-height: 440px; }
-.giphy-credit { padding: 7px 10px; background: var(--ink); color: var(--paper); font-weight: 950; font-size: .65rem; letter-spacing: .06em; }
+.source-note { padding: 7px 10px; border: 1px solid var(--line); color: var(--muted); font-weight: 900; font-size: .62rem; letter-spacing: .08em; }
 .search-message { padding: 50px 10px; text-align: center; color: var(--muted); }
+.provider-results { display: grid; gap: 42px; }
+.provider-section { min-width: 0; }
+.provider-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 0 2px 12px; border-bottom: 1px solid var(--line); }
+.provider-heading h3 { margin: 0; font-size: 1rem; letter-spacing: -.02em; }
+.provider-heading span { color: var(--muted); font-size: .58rem; font-weight: 900; letter-spacing: .08em; }
 .search-grid { columns: 4 170px; column-gap: 10px; }
-.search-card { position: relative; display: block; break-inside: avoid; width: 100%; margin: 0 0 10px; padding: 0; overflow: hidden; border: 0; border-radius: 11px; background: var(--surface); cursor: pointer; }
+.search-card { position: relative; display: block; break-inside: avoid; width: 100%; margin: 10px 0 0; padding: 0; overflow: hidden; border: 0; border-radius: 11px; background: var(--surface); color: var(--ink); text-decoration: none; cursor: pointer; }
 .search-card img { display: block; width: 100%; height: auto; min-height: 110px; object-fit: cover; }
-.search-card::after { content: "OPEN"; position: absolute; right: 7px; bottom: 7px; padding: 5px 7px; border-radius: 5px; background: rgb(17 19 24 / 82%); color: var(--ink); font-size: .57rem; font-weight: 900; opacity: 0; transition: opacity .15s; }
+.search-card-copy { display: block; padding: 9px 10px 11px; overflow: hidden; color: var(--muted); font-size: .66rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.search-card::after { content: "SOURCE"; position: absolute; right: 7px; top: 7px; padding: 5px 7px; border-radius: 5px; background: rgb(17 19 24 / 82%); color: var(--ink); font-size: .57rem; font-weight: 900; opacity: 0; transition: opacity .15s; }
 .search-card:hover::after { opacity: 1; }
 
 footer { min-height: 110px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); color: #6f7278; font-size: .76rem; }
@@ -138,6 +144,7 @@ footer a { color: inherit; }
   .result-actions > * { flex: 1; }
   .control-grid { grid-template-columns: 1fr 1fr; }
   .search-heading { align-items: start; }
+  .source-note { display: none; }
   .search-grid { columns: 2 130px; }
 }
 

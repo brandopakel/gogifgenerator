@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
@@ -24,6 +25,10 @@ type GeneratedAsset struct {
 
 type GeneratedSaver interface {
 	SaveGenerated(context.Context, GeneratedAsset) (Asset, error)
+}
+
+type GeneratedReader interface {
+	OpenGenerated(context.Context, string) (Asset, io.ReadCloser, error)
 }
 
 // Library coordinates immutable blobs with their searchable catalog records.
@@ -100,6 +105,33 @@ func (l *Library) SaveGenerated(ctx context.Context, generated GeneratedAsset) (
 		return Asset{}, fmt.Errorf("catalog generated asset: %w", err)
 	}
 	return asset, nil
+}
+
+// OpenGenerated only serves GoGIF-created managed bytes. Provider search
+// results are external references and cannot cross this boundary.
+func (l *Library) OpenGenerated(ctx context.Context, id string) (Asset, io.ReadCloser, error) {
+	asset, err := l.repository.Get(ctx, id)
+	if err != nil {
+		return Asset{}, nil, err
+	}
+	if asset.State != StateReady || asset.Kind != KindGIF || asset.Provenance.Provider != "gogif" {
+		return Asset{}, nil, store.ErrNotFound
+	}
+	for _, rendition := range asset.Renditions {
+		if rendition.Name != "original" || rendition.Storage != StorageManaged || rendition.ContentType != "image/gif" {
+			continue
+		}
+		reader, blob, err := l.blobs.Open(ctx, rendition.BlobKey)
+		if err != nil {
+			return Asset{}, nil, err
+		}
+		if blob.Size != rendition.SizeBytes {
+			_ = reader.Close()
+			return Asset{}, nil, errors.New("generated blob size does not match its catalog record")
+		}
+		return asset, reader, nil
+	}
+	return Asset{}, nil, store.ErrNotFound
 }
 
 func newAssetID() (string, error) {
