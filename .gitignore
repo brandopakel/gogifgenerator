@@ -3,6 +3,7 @@
 .idea/
 .vscode/
 bin/
+.data/
 coverage.out
 *.gif
 !docs/**/*.gif

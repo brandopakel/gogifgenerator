@@ -12,7 +12,9 @@ import (
 
 	"github.com/brandopakel/gogifgenerator/internal/config"
 	"github.com/brandopakel/gogifgenerator/internal/httpapi"
+	"github.com/brandopakel/gogifgenerator/internal/media"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
+	"github.com/brandopakel/gogifgenerator/internal/store"
 )
 
 func main() {
@@ -34,12 +36,42 @@ func main() {
 		}
 	}
 
+	var catalog store.KV = store.NewMemoryKV()
+	catalogBackend := "memory"
+	var generatedSaver media.GeneratedSaver
+	if settings.MemKVAddress != "" {
+		memkv, err := store.NewMemKV(settings.MemKVAddress)
+		if err != nil {
+			logger.Error("configure MemKV", "error", err)
+			os.Exit(1)
+		}
+		defer memkv.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err = memkv.Ping(ctx)
+		cancel()
+		if err != nil {
+			logger.Error("connect to MemKV", "address", settings.MemKVAddress, "error", err)
+			os.Exit(1)
+		}
+		blobs, err := store.NewFileBlobStore(settings.BlobDirectory)
+		if err != nil {
+			logger.Error("configure blob storage", "error", err)
+			os.Exit(1)
+		}
+		catalog = memkv
+		catalogBackend = "memkv"
+		generatedSaver = media.NewLibrary(media.NewRepository(catalog), blobs)
+	}
+
 	handler := httpapi.New(httpapi.Options{
-		Planner:     animationPlanner,
-		Logger:      logger,
-		AIEnabled:   settings.OpenAIAPIKey != "",
-		AIModel:     settings.OpenAIModel,
-		GiphyAPIKey: settings.GiphyAPIKey,
+		Planner:        animationPlanner,
+		Logger:         logger,
+		AIEnabled:      settings.OpenAIAPIKey != "",
+		AIModel:        settings.OpenAIModel,
+		GiphyAPIKey:    settings.GiphyAPIKey,
+		Catalog:        catalog,
+		CatalogBackend: catalogBackend,
+		GeneratedSaver: generatedSaver,
 	})
 	server := &http.Server{
 		Addr:              settings.Address,
@@ -61,7 +93,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("GoGIF is ready", "url", httpapi.AddressURL(settings.Address), "ai", settings.OpenAIAPIKey != "")
+	logger.Info("GoGIF is ready", "url", httpapi.AddressURL(settings.Address), "ai", settings.OpenAIAPIKey != "", "catalog", catalogBackend)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)

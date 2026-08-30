@@ -12,6 +12,8 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Automatic local fallback if the AI provider is unavailable
 - Responsive, installable PWA embedded in the Go binary
 - Direct-to-GIPHY search integration with required attribution
+- MemKV-backed asset catalog with an ephemeral zero-config fallback
+- Content-addressed local blob storage for generated media
 - Browser-extension development shell
 - Bounds checking, request limits, graceful shutdown, tests, and CI
 
@@ -41,6 +43,16 @@ make run
 ```
 
 GIPHY requires search requests to originate from the client, so the web app receives this platform key at runtime. Never use a private server credential in that setting. See the [GIPHY API requirements](https://developers.giphy.com/docs/api/).
+
+To persist generated asset records through your [`brandopakel/memkv`](https://github.com/brandopakel/memkv) `develop` branch, start MemKV with AOF enabled and eviction effectively disabled for the canonical catalog, then run:
+
+```sh
+export GOGIF_MEMKV_ADDR="127.0.0.1:8081"
+export GOGIF_BLOB_DIR=".data/blobs"
+make run
+```
+
+The GIF bytes go to content-addressed blob storage; MemKV holds the searchable record, provenance, rights, state, and later its set/sorted-set indexes. See [ADR 0001](docs/adr/0001-media-storage-and-memkv.md) for the exact split.
 
 ## API
 
@@ -75,7 +87,7 @@ web search client ────────────────────�
 
 The planner speaks a small, validated animation-spec contract. That keeps model vendors, renderers, and future native clients replaceable. The OpenAI adapter uses the Responses API with Structured Outputs, following the [official OpenAI API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).
 
-Read [Architecture](docs/ARCHITECTURE.md) for boundaries and scaling decisions, and [Roadmap](docs/ROADMAP.md) for the staged product plan.
+Read [Architecture](docs/ARCHITECTURE.md) for boundaries and scaling decisions, [Media sources](docs/MEDIA_SOURCES.md) for the provider/rights matrix, [ADR 0001](docs/adr/0001-media-storage-and-memkv.md) for storage, and [Roadmap](docs/ROADMAP.md) for the staged product plan.
 
 ## Extension development
 

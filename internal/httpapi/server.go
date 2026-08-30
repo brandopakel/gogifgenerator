@@ -3,6 +3,8 @@
 package httpapi
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,17 +14,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brandopakel/gogifgenerator/internal/media"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/render"
+	"github.com/brandopakel/gogifgenerator/internal/store"
 	"github.com/brandopakel/gogifgenerator/webapp"
 )
 
 type Options struct {
-	Planner     planner.Planner
-	Logger      *slog.Logger
-	AIEnabled   bool
-	AIModel     string
-	GiphyAPIKey string
+	Planner        planner.Planner
+	Logger         *slog.Logger
+	AIEnabled      bool
+	AIModel        string
+	GiphyAPIKey    string
+	Catalog        store.KV
+	CatalogBackend string
+	GeneratedSaver media.GeneratedSaver
 }
 
 func New(options Options) http.Handler {
@@ -43,11 +50,28 @@ type server struct {
 	options Options
 }
 
-func (s *server) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "ok",
-		"service": "gogif",
-		"ai":      s.options.AIEnabled,
+func (s *server) health(w http.ResponseWriter, r *http.Request) {
+	statusCode := http.StatusOK
+	status := "ok"
+	catalogStatus := "disabled"
+	if s.options.Catalog != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+		err := s.options.Catalog.Ping(ctx)
+		cancel()
+		if err != nil {
+			statusCode = http.StatusServiceUnavailable
+			status = "degraded"
+			catalogStatus = "unavailable"
+		} else {
+			catalogStatus = "ok"
+		}
+	}
+	writeJSON(w, statusCode, map[string]any{
+		"status":          status,
+		"service":         "gogif",
+		"ai":              s.options.AIEnabled,
+		"catalog":         catalogStatus,
+		"catalog_backend": s.options.CatalogBackend,
 	})
 }
 
@@ -91,13 +115,32 @@ func (s *server) generate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	var output bytes.Buffer
+	if err := render.GIF(&output, result.Spec); err != nil {
+		s.options.Logger.Error("render GIF", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not render GIF")
+		return
+	}
+	if s.options.GeneratedSaver != nil {
+		asset, err := s.options.GeneratedSaver.SaveGenerated(r.Context(), media.GeneratedAsset{
+			Prompt: request.Prompt,
+			Engine: result.Engine,
+			Spec:   result.Spec,
+			Data:   output.Bytes(),
+		})
+		if err != nil {
+			s.options.Logger.Warn("save generated GIF", "error", err)
+		} else {
+			w.Header().Set("X-GoGIF-Asset-ID", asset.ID)
+		}
+	}
 	w.Header().Set("Content-Type", "image/gif")
 	w.Header().Set("Content-Disposition", `inline; filename="gogif.gif"`)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-GoGIF-Engine", result.Engine)
 	w.WriteHeader(http.StatusOK)
-	if err := render.GIF(w, result.Spec); err != nil {
-		s.options.Logger.Error("render GIF", "error", err)
+	if _, err := w.Write(output.Bytes()); err != nil {
+		s.options.Logger.Error("write GIF response", "error", err)
 	}
 }
 

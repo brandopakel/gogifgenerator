@@ -16,6 +16,8 @@ The input and result surfaces are shared. The systems behind them are deliberate
 | `internal/planner` | Prompt → validated animation spec | Offline deterministic planner; optional OpenAI adapter |
 | `internal/gif` | Stable domain contract and safety bounds | Dimensions, timing, palette, motion, caption |
 | `internal/render` | Animation spec → encoded asset | Pure-Go indexed-color GIF renderer |
+| `internal/media` | Asset, rendition, provenance, and rights catalog | Validated JSON records persisted through the KV boundary |
+| `internal/store` | Metadata and binary persistence seams | MemKV RESP adapter, memory KV, content-addressed filesystem blobs |
 | `internal/httpapi` | Public client contract | Standard-library HTTP server and embedded PWA |
 | `webapp` | Universal interaction surface | Responsive PWA and direct licensed search |
 | `apps/extension` | Browser toolbar surface | Local-development MV3 client |
@@ -62,7 +64,7 @@ The pure-Go renderer is fast to ship and universally buildable. It intentionally
 
 1. One Go container behind TLS, with timeouts and an API key stored server-side.
 2. CDN for the PWA shell; managed object storage for generated assets.
-3. Postgres for accounts/projects and Redis or a managed queue for render jobs.
+3. MemKV for asset records, indexes, TTL state, and render jobs, with AOF durability and automated backups.
 4. Horizontally scaled API and CPU/GPU worker pools with signed upload/download URLs.
 5. Regional search/API edges only after provider policies and real latency data justify them.
 
