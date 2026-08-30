@@ -20,7 +20,7 @@ The input and result surfaces are shared. The systems behind them are deliberate
 | `internal/render` | Animation spec → encoded asset | Pure-Go indexed-color GIF renderer |
 | `internal/media` | Asset, rendition, provenance, and rights catalog | Validated JSON records persisted through the KV boundary |
 | `internal/store` | Metadata and binary persistence seams | MemKV RESP adapter, memory KV, content-addressed filesystem blobs |
-| `internal/provider` | Federated discovery and rights normalization | Clip-capable cached provider contract plus Wikimedia Commons and GifCities adapters |
+| `internal/provider` | Federated discovery and rights normalization | Clip-capable cached provider contract plus Wikimedia Commons, GifCities, and Prelinger adapters |
 | `internal/httpapi` | Public client contract | Standard-library HTTP server and embedded PWA |
 | `webapp` | Universal interaction surface | Responsive PWA with sectioned provider search |
 | `apps/extension` | Browser toolbar surface | Local-development MV3 client |
@@ -48,7 +48,7 @@ Never send the OpenAI key to a client. In a multi-user deployment, add authentic
 
 ## Search
 
-Search is a federation problem, not a web-crawling problem. The Go API currently exposes Wikimedia Commons and GifCities through normalized adapters, caches repeat queries for fifteen minutes, and links to provider-hosted media rather than mirroring it. GifCities results intentionally retain unknown commercial/derivative permissions because its search response does not provide per-file license metadata. Each provider adapter must own:
+Search is a federation problem, not a web-crawling problem. The Go API currently exposes Wikimedia Commons, GifCities, and Prelinger through normalized adapters, caches repeat queries for fifteen minutes, and links to provider-hosted media rather than mirroring it. GifCities results intentionally retain unknown commercial/derivative permissions because its search response does not provide per-file license metadata. Prelinger search returns metadata and posters only; selecting a preview revalidates the item and resolves stable Internet Archive video and caption renditions on demand. Each provider adapter must own:
 
 - terms and attribution compliance;
 - platform-specific credentials;
@@ -63,7 +63,7 @@ GIPHY currently requires calls to be made from the client. When explicitly confi
 
 ## Zero-spend operation
 
-The default topology runs on the user's computer: one Go process, an in-memory catalog, local file bytes, Wikimedia's public API, and no hosted AI calls. MemKV can be enabled locally for persistent catalog records without modifying the MemKV repository. Blender and ComfyUI implement `internal/imagegen`; they receive validated bytes from the controlled reference fetcher, never an arbitrary URL.
+The default topology runs on the user's computer: one Go process, an in-memory catalog, local file bytes, public catalog APIs, and no hosted AI calls. MemKV can be enabled locally for persistent catalog records without modifying the MemKV repository. Blender and ComfyUI implement `internal/imagegen`; they receive validated bytes from the controlled reference fetcher, never an arbitrary URL.
 
 Cloud object storage, managed databases, remote GPU workers, and hosted model APIs are optional deployment choices, not prerequisites. A public multi-user service cannot promise zero ongoing cost because its compute, bandwidth, and storage must run somewhere.
 

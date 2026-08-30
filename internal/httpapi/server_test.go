@@ -37,7 +37,9 @@ func TestSecurityPolicyAllowsConfiguredCatalogMedia(t *testing.T) {
 	response := httptest.NewRecorder()
 	New(Options{Planner: planner.Local{}}).ServeHTTP(response, request)
 	policy := response.Header().Get("Content-Security-Policy")
-	for _, host := range []string{"https://upload.wikimedia.org", "https://blob.gifcities.org"} {
+	for _, host := range []string{
+		"https://upload.wikimedia.org", "https://blob.gifcities.org", "https://archive.org", "https://*.archive.org",
+	} {
 		if !strings.Contains(policy, host) {
 			t.Fatalf("Content-Security-Policy does not allow %s: %q", host, policy)
 		}
@@ -222,6 +224,29 @@ func TestSearchProviderReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestResolveProviderItem(t *testing.T) {
+	fake := &recordingProvider{result: provider.Result{
+		Provider: "test", ExternalID: "clip-1", Title: "Resolved clip", Kind: media.KindVideo,
+		Renditions: []provider.Rendition{{Name: "360p", ContentType: "video/mp4", URL: "https://example.com/clip.mp4"}},
+	}}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/providers/test/items/clip-1?locale=fr", nil)
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, Providers: []provider.Provider{fake}}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if fake.resolvedID != "clip-1" || fake.resolvedLocale != "fr" {
+		t.Fatalf("resolved ID = %q; locale = %q", fake.resolvedID, fake.resolvedLocale)
+	}
+	var result provider.Result
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Kind != media.KindVideo || len(result.Renditions) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 type recordingSaver struct {
 	generated media.GeneratedAsset
 }
@@ -237,13 +262,15 @@ func (r *recordingGeneratedReader) OpenGenerated(_ context.Context, id string) (
 }
 
 type recordingProvider struct {
-	query      provider.Query
-	result     provider.Result
-	resolvedID string
+	query          provider.Query
+	result         provider.Result
+	resolvedID     string
+	resolvedLocale string
 }
 
-func (p *recordingProvider) Resolve(_ context.Context, externalID, _ string) (provider.Result, error) {
+func (p *recordingProvider) Resolve(_ context.Context, externalID, locale string) (provider.Result, error) {
 	p.resolvedID = externalID
+	p.resolvedLocale = locale
 	return p.result, nil
 }
 

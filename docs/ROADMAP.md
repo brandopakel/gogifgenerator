@@ -7,6 +7,7 @@
 - Responsive installable PWA
 - Wikimedia Commons search through the Go provider API
 - GifCities search through the Go provider API
+- Prelinger film search and on-demand provider-hosted video previews
 - Optional GIPHY search path
 - Extension development shell
 - Tests and CI

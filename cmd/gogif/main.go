@@ -19,6 +19,7 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
 	"github.com/brandopakel/gogifgenerator/internal/provider/gifcities"
+	"github.com/brandopakel/gogifgenerator/internal/provider/prelinger"
 	"github.com/brandopakel/gogifgenerator/internal/provider/wikimedia"
 	"github.com/brandopakel/gogifgenerator/internal/reference"
 	"github.com/brandopakel/gogifgenerator/internal/store"
@@ -83,9 +84,15 @@ func main() {
 		logger.Error("configure GifCities", "error", err)
 		os.Exit(1)
 	}
+	archive, err := prelinger.New(prelinger.Options{})
+	if err != nil {
+		logger.Error("configure Prelinger Archive", "error", err)
+		os.Exit(1)
+	}
 	mediaProviders := []provider.Provider{
 		provider.Cached{Next: commons, KV: catalog, TTL: 15 * time.Minute},
 		provider.Cached{Next: cities, KV: catalog, TTL: 15 * time.Minute},
+		provider.Cached{Next: archive, KV: catalog, TTL: 15 * time.Minute},
 	}
 	referenceFetcher, err := reference.New(reference.Options{})
 	if err != nil {

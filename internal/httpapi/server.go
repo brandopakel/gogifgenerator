@@ -58,6 +58,7 @@ func New(options Options) http.Handler {
 	mux.HandleFunc("GET /api/health", server.health)
 	mux.HandleFunc("GET /api/v1/config", server.publicConfig)
 	mux.HandleFunc("GET /api/v1/providers/{provider}/search", server.searchProvider)
+	mux.HandleFunc("GET /api/v1/providers/{provider}/items/{id}", server.resolveProvider)
 	mux.HandleFunc("POST /api/v1/gifs/plan", server.plan)
 	mux.HandleFunc("POST /api/v1/gifs/generate", server.generate)
 	mux.HandleFunc("POST /api/v1/gifs/generate-from-reference", server.generateFromReference)
@@ -157,6 +158,37 @@ func (s *server) searchProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+func (s *server) resolveProvider(w http.ResponseWriter, r *http.Request) {
+	candidate, ok := s.providers[r.PathValue("provider")]
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown media provider")
+		return
+	}
+	resolver, ok := candidate.(provider.Resolver)
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, "provider does not expose item details")
+		return
+	}
+	result, err := resolver.Resolve(r.Context(), r.PathValue("id"), r.URL.Query().Get("locale"))
+	if err != nil {
+		switch {
+		case errors.Is(err, provider.ErrInvalidQuery):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, provider.ErrNotFound):
+			writeError(w, http.StatusNotFound, "provider item was not found")
+		case errors.Is(err, context.DeadlineExceeded):
+			writeError(w, http.StatusGatewayTimeout, "media provider timed out")
+		case errors.Is(err, context.Canceled):
+			return
+		default:
+			s.options.Logger.Warn("resolve media provider item", "provider", candidate.Descriptor().ID, "id", r.PathValue("id"), "error", err)
+			writeError(w, http.StatusBadGateway, "media provider is temporarily unavailable")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *server) plan(w http.ResponseWriter, r *http.Request) {
@@ -459,7 +491,7 @@ func (s *server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data: https://*.giphy.com https://upload.wikimedia.org https://blob.gifcities.org; connect-src 'self' https://api.giphy.com; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data: https://*.giphy.com https://upload.wikimedia.org https://blob.gifcities.org https://archive.org; media-src 'self' blob: https://archive.org https://*.archive.org; connect-src 'self' https://api.giphy.com; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
 }

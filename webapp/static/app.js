@@ -134,7 +134,7 @@ async function search(query) {
   elements.searchMessage.textContent = 'Searching open media…';
   elements.searchTitle.textContent = `“${query}”`;
 
-	const searches = [searchWikimedia(query), searchGifCities(query)];
+	const searches = [searchWikimedia(query), searchGifCities(query), searchPrelinger(query)];
   const apiKey = state.config?.giphy_api_key;
 	if (apiKey) searches.push(searchGiphy(query, apiKey));
 
@@ -172,10 +172,12 @@ async function searchWikimedia(query) {
 		items: payload.results.map((item) => ({
 			provider: item.provider,
 			externalID: item.external_id,
+			kind: item.kind,
 			href: item.source_url,
 			preview: item.preview_url,
 			title: item.title || query,
 			note: [item.author, item.license_name].filter(Boolean).join(' · '),
+			allowedHandling: item.allowed_handling,
 			transformPolicy: item.transform_policy,
 			derivatives: item.derivatives,
 		})),
@@ -194,10 +196,36 @@ async function searchGifCities(query) {
 		items: payload.results.map((item) => ({
 			provider: item.provider,
 			externalID: item.external_id,
+			kind: item.kind,
 			href: item.source_url,
 			preview: item.preview_url,
 			title: item.title || query,
 			note: 'Archived source · rights not supplied',
+			allowedHandling: item.allowed_handling,
+			transformPolicy: item.transform_policy,
+			derivatives: item.derivatives,
+		})),
+	};
+}
+
+async function searchPrelinger(query) {
+	const url = new URL('/api/v1/providers/prelinger/search', window.location.origin);
+	url.search = new URLSearchParams({ q: query, limit: '18', locale: 'en' });
+	const response = await fetch(url);
+	const payload = await response.json().catch(() => ({}));
+	if (!response.ok) throw new Error(payload.error?.message || 'Prelinger Archive search failed.');
+	return {
+		label: 'Prelinger Archive',
+		credit: 'INTERNET ARCHIVE · ITEM-SPECIFIC LICENSES',
+		items: payload.results.map((item) => ({
+			provider: item.provider,
+			externalID: item.external_id,
+			kind: item.kind,
+			href: item.source_url,
+			preview: item.preview_url,
+			title: item.title || query,
+			note: [item.author, item.license_name || 'Check item rights'].filter(Boolean).join(' · '),
+			allowedHandling: item.allowed_handling,
 			transformPolicy: item.transform_policy,
 			derivatives: item.derivatives,
 		})),
@@ -216,6 +244,7 @@ async function searchGiphy(query, apiKey) {
 		items: payload.data.map((item) => {
 			const preview = item.images.fixed_width_small || item.images.fixed_width || item.images.original;
 			return {
+				kind: 'gif',
 				href: item.url || item.images.original.url,
 				preview: preview.webp || preview.url,
 				title: item.title || query,
@@ -263,9 +292,19 @@ function searchCard(item) {
 		link.append(copy);
 	}
 	card.append(link);
+	if ((item.kind === 'video' || item.kind === 'clip') && item.allowedHandling?.includes('display')) {
+		const preview = document.createElement('button');
+		preview.className = 'preview-button';
+		preview.type = 'button';
+		preview.textContent = 'Load video preview';
+		preview.addEventListener('click', () => toggleVideoPreview(item, card, link, image, preview));
+		card.append(preview);
+	}
 	const canRemix = state.config?.image_generator?.supports_references
 		&& item.transformPolicy === 'allowed'
-		&& item.derivatives === 'allowed';
+		&& item.derivatives === 'allowed'
+		&& item.allowedHandling?.includes('temporary-transform')
+		&& (item.kind === 'image' || item.kind === 'gif');
 	if (canRemix) {
 		const remix = document.createElement('button');
 		remix.className = 'remix-button';
@@ -275,6 +314,51 @@ function searchCard(item) {
 		card.append(remix);
 	}
 	return card;
+}
+
+async function toggleVideoPreview(item, card, link, image, button) {
+	const existing = card.querySelector('video');
+	if (existing) {
+		existing.hidden = !existing.hidden;
+		image.hidden = !existing.hidden;
+		if (existing.hidden) existing.pause();
+		button.textContent = existing.hidden ? 'Show video preview' : 'Hide video preview';
+		return;
+	}
+	button.disabled = true;
+	button.textContent = 'Loading preview…';
+	try {
+		const url = new URL(`/api/v1/providers/${encodeURIComponent(item.provider)}/items/${encodeURIComponent(item.externalID)}`, window.location.origin);
+		url.searchParams.set('locale', 'en');
+		const response = await fetch(url);
+		const payload = await response.json().catch(() => ({}));
+		if (!response.ok) throw new Error(payload.error?.message || 'Could not load this video preview.');
+		const rendition = payload.renditions?.find((candidate) => candidate.content_type === 'video/mp4') || payload.renditions?.[0];
+		if (!rendition?.url) throw new Error('This item has no browser-compatible video rendition.');
+		const video = document.createElement('video');
+		video.controls = true;
+		video.playsInline = true;
+		video.preload = 'metadata';
+		video.poster = item.preview;
+		video.src = rendition.url;
+		for (const caption of payload.captions || []) {
+			if (caption.format !== 'vtt') continue;
+			const track = document.createElement('track');
+			track.kind = 'captions';
+			track.src = caption.url;
+			track.srclang = caption.language || 'en';
+			track.label = (caption.language || 'Captions').toUpperCase();
+			video.append(track);
+		}
+		card.insertBefore(video, link);
+		image.hidden = true;
+		button.textContent = 'Hide video preview';
+	} catch (error) {
+		button.textContent = 'Try video preview again';
+		showToast(error.message);
+	} finally {
+		button.disabled = false;
+	}
 }
 
 function selectReference(item) {
