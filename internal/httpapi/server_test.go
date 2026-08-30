@@ -9,6 +9,7 @@ import (
 	"image/gif"
 	"image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,11 +17,13 @@ import (
 	"strings"
 	"testing"
 
+	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
 	"github.com/brandopakel/gogifgenerator/internal/media"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
 	"github.com/brandopakel/gogifgenerator/internal/reference"
+	"github.com/brandopakel/gogifgenerator/internal/video"
 )
 
 func TestHealth(t *testing.T) {
@@ -32,13 +35,34 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestPublicConfigDisablesTypedNilVideoDecoder(t *testing.T) {
+	var decoder *recordingVideoDecoder
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, VideoDecoder: decoder}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	var publicConfig struct {
+		VideoEditor struct {
+			Enabled bool `json:"enabled"`
+		} `json:"video_editor"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&publicConfig); err != nil {
+		t.Fatal(err)
+	}
+	if publicConfig.VideoEditor.Enabled {
+		t.Fatal("typed nil video decoder was reported as enabled")
+	}
+}
+
 func TestSecurityPolicyAllowsConfiguredCatalogMedia(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 	response := httptest.NewRecorder()
 	New(Options{Planner: planner.Local{}}).ServeHTTP(response, request)
 	policy := response.Header().Get("Content-Security-Policy")
 	for _, host := range []string{
-		"https://upload.wikimedia.org", "https://blob.gifcities.org", "https://archive.org", "https://*.archive.org",
+		"https://upload.wikimedia.org", "https://blob.gifcities.org", "https://archive.org", "https://*.archive.org", "https://images-assets.nasa.gov",
 	} {
 		if !strings.Contains(policy, host) {
 			t.Fatalf("Content-Security-Policy does not allow %s: %q", host, policy)
@@ -64,6 +88,167 @@ func TestGenerate(t *testing.T) {
 	}
 	if _, err := gif.DecodeAll(bytes.NewReader(response.Body.Bytes())); err != nil {
 		t.Fatalf("DecodeAll() error = %v", err)
+	}
+}
+
+func TestGenerateFromUploadEditsPhoto(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	file, err := writer.CreateFormFile("media", "photo.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write(generatedTestPNG(t)); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{
+		"caption": "WE SHIPPED", "width": "128", "height": "128", "frames": "4",
+		"delay_ms": "80", "motion": "pulse", "crop_x": "0.5", "crop_y": "-0.5",
+		"zoom": "1.2", "caption_position": "top", "loop": "false",
+	} {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate-from-upload", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("X-GoGIF-Engine"); got != "upload-photo+go" {
+		t.Fatalf("X-GoGIF-Engine = %q", got)
+	}
+	animation, err := gif.DecodeAll(bytes.NewReader(response.Body.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(animation.Image) != 4 || animation.LoopCount != -1 || animation.Config.Width != 128 {
+		t.Fatalf("animation = %d frames, loop %d, width %d", len(animation.Image), animation.LoopCount, animation.Config.Width)
+	}
+}
+
+func TestGenerateFromUploadRejectsUnsupportedMedia(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	file, err := writer.CreateFormFile("media", "clip.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = file.Write([]byte("not an image"))
+	_ = writer.Close()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate-from-upload", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}}).ServeHTTP(response, request)
+	if response.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestGenerateFromUploadPreservesExistingAnimation(t *testing.T) {
+	var source bytes.Buffer
+	animation := &gif.GIF{LoopCount: 0}
+	for frameNumber := range 6 {
+		frame := image.NewPaletted(image.Rect(0, 0, 8, 8), color.Palette{color.Black, color.White})
+		frame.SetColorIndex(frameNumber, frameNumber, 1)
+		animation.Image = append(animation.Image, frame)
+		animation.Delay = append(animation.Delay, 5)
+	}
+	if err := gif.EncodeAll(&source, animation); err != nil {
+		t.Fatal(err)
+	}
+	frames, pixels, err := inspectGIF(source.Bytes())
+	if err != nil || frames != 6 || pixels != 6*8*8 {
+		t.Fatalf("inspectGIF() = %d, %d, %v", frames, pixels, err)
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	file, _ := writer.CreateFormFile("media", "animation.gif")
+	_, _ = file.Write(source.Bytes())
+	_ = writer.WriteField("width", "128")
+	_ = writer.WriteField("height", "128")
+	_ = writer.WriteField("frames", "4")
+	_ = writer.Close()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate-from-upload", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if response.Header().Get("X-GoGIF-Engine") != "upload-gif+go" {
+		t.Fatalf("engine = %q", response.Header().Get("X-GoGIF-Engine"))
+	}
+	exported, err := gif.DecodeAll(bytes.NewReader(response.Body.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exported.Image) != 4 {
+		t.Fatalf("exported animation = %d frames", len(exported.Image))
+	}
+}
+
+func TestGenerateFromUploadTrimsVideoWithConfiguredDecoder(t *testing.T) {
+	decoder := &recordingVideoDecoder{}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	file, _ := writer.CreateFormFile("media", "clip.mp4")
+	_, _ = file.Write(append([]byte{0, 0, 0, 20}, []byte("ftypisomvideo")...))
+	for key, value := range map[string]string{
+		"width": "128", "height": "128", "frames": "4", "trim_start_ms": "1000", "trim_end_ms": "2500",
+	} {
+		_ = writer.WriteField(key, value)
+	}
+	_ = writer.Close()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate-from-upload", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, VideoDecoder: decoder}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if decoder.request.StartMS != 1000 || decoder.request.EndMS != 2500 || decoder.request.Frames != 4 {
+		t.Fatalf("Decode() request = %#v", decoder.request)
+	}
+	if response.Header().Get("X-GoGIF-Engine") != "upload-video+test-video+go" {
+		t.Fatalf("engine = %q", response.Header().Get("X-GoGIF-Engine"))
+	}
+	if _, err := gif.DecodeAll(bytes.NewReader(response.Body.Bytes())); err != nil {
+		t.Fatalf("DecodeAll() error = %v", err)
+	}
+}
+
+func TestGenerateFromUploadReportsUnavailableVideoEditor(t *testing.T) {
+	var decoder *recordingVideoDecoder
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	file, _ := writer.CreateFormFile("media", "clip.mp4")
+	_, _ = file.Write(append([]byte{0, 0, 0, 20}, []byte("ftypisomvideo")...))
+	_ = writer.Close()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate-from-upload", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, VideoDecoder: decoder}).ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "FFmpeg") {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestOptimizeUploadGIFReducesDimensionsAndFramesToTarget(t *testing.T) {
+	spec := gifdomain.Defaults()
+	rendered, exported, err := optimizeUploadGIF(spec, 300_000, func(candidate gifdomain.Spec) ([]byte, error) {
+		return make([]byte, candidate.Width*candidate.Height*candidate.Frames/8), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rendered) > 300_000 || exported.Width >= spec.Width || exported.Frames >= spec.Frames {
+		t.Fatalf("export = %d bytes, %#v", len(rendered), exported)
 	}
 }
 
@@ -307,6 +492,26 @@ func (p *recordingProvider) ResolveQuote(_ context.Context, externalID, locale, 
 
 type recordingImageGenerator struct {
 	request imagegen.Request
+}
+
+type recordingVideoDecoder struct {
+	request video.Request
+}
+
+func (d *recordingVideoDecoder) Descriptor() video.Descriptor {
+	return video.Descriptor{ID: "test-video", Label: "Test video", Local: true}
+}
+
+func (d *recordingVideoDecoder) Decode(_ context.Context, request video.Request) (*gif.GIF, error) {
+	d.request = request
+	animation := &gif.GIF{Config: image.Config{Width: 8, Height: 8}, LoopCount: 0}
+	for frameNumber := range request.Frames {
+		frame := image.NewPaletted(image.Rect(0, 0, 8, 8), color.Palette{color.Black, color.White})
+		frame.SetColorIndex(frameNumber%8, frameNumber%8, 1)
+		animation.Image = append(animation.Image, frame)
+		animation.Delay = append(animation.Delay, 5)
+	}
+	return animation, nil
 }
 
 func (g *recordingImageGenerator) Descriptor() imagegen.Descriptor {

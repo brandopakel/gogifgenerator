@@ -18,9 +18,10 @@ The input and result surfaces are shared. The systems behind them are deliberate
 | `internal/reference` | Approved provider item → bounded temporary input | Revalidation, exact-host allowlist, MIME/size checks, SHA-256, deletion |
 | `internal/gif` | Stable domain contract and safety bounds | Dimensions, timing, palette, motion, caption |
 | `internal/render` | Animation spec → encoded asset | Pure-Go indexed-color GIF renderer |
+| `internal/video` | Bounded short clip → request-scoped source frames | Optional local FFmpeg adapter with isolated temporary files and cleanup |
 | `internal/media` | Asset, rendition, provenance, and rights catalog | Validated JSON records persisted through the KV boundary |
 | `internal/store` | Metadata and binary persistence seams | MemKV RESP adapter, memory KV, content-addressed filesystem blobs |
-| `internal/provider` | Federated discovery and rights normalization | Clip-capable cached provider contract plus Wikimedia Commons, GifCities, and Prelinger adapters |
+| `internal/provider` | Federated discovery and rights normalization | Clip-capable cached provider contract plus Wikimedia Commons, GifCities, Prelinger, and NASA adapters |
 | `internal/subtitle` | Provider captions → local quote time range | Bounded WebVTT/SRT parser with exact and ASR-tolerant matching |
 | `internal/httpapi` | Public client contract | Standard-library HTTP server and embedded PWA |
 | `webapp` | Universal interaction surface | Responsive PWA with sectioned provider search |
@@ -49,7 +50,7 @@ Never send the OpenAI key to a client. In a multi-user deployment, add authentic
 
 ## Search
 
-Search is a federation problem, not a web-crawling problem. The Go API currently exposes Wikimedia Commons, GifCities, and Prelinger through normalized adapters, caches repeat queries for fifteen minutes, and links to provider-hosted media rather than mirroring it. GifCities results intentionally retain unknown commercial/derivative permissions because its search response does not provide per-file license metadata. Prelinger search returns metadata and posters only; selecting a preview revalidates the item and resolves stable Internet Archive video and caption renditions on demand. Each provider adapter must own:
+Search is a federation problem, not a web-crawling problem. The Go API currently exposes Wikimedia Commons, GifCities, Prelinger, and NASA through normalized adapters, caches repeat queries for fifteen minutes, and links to provider-hosted media rather than mirroring it. GifCities and NASA results intentionally retain unknown commercial/derivative permissions because their search responses do not provide item-level rights clearance. Prelinger search returns metadata and posters only; selecting a preview revalidates the item and resolves stable Internet Archive video and caption renditions on demand. Each provider adapter must own:
 
 - terms and attribution compliance;
 - platform-specific credentials;
@@ -72,7 +73,7 @@ Cloud object storage, managed databases, remote GPU workers, and hosted model AP
 
 ## Rendering evolution
 
-The pure-Go renderer is fast to ship and universally buildable. It intentionally uses a small indexed palette and bitmap type. The next renderer can add image/video inputs, better typography, stickers, transforms, subtitles, cropping, optimization, animated WebP, and MP4. FFmpeg or a purpose-built worker is appropriate once those features are validated; it should remain behind the same spec/job interface.
+The pure-Go renderer is universally buildable and owns final cropping, captions, timing, palette conversion, and target-size retries. Photo and GIF inputs decode in-process under explicit pixel/frame limits. Short video remains optional: `internal/video/ffmpeg` writes one request to a private temporary directory, invokes a local executable without a shell, bounds the clip to fifteen seconds and forty-eight frames, decodes the result, and removes the directory. Future renderers can add better typography, stickers, subject tracking, animated WebP, and MP4 behind the same contracts.
 
 ## Deployment path
 

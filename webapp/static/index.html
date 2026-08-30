@@ -5,8 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#111318">
     <meta name="description" content="Create and find the right GIF in seconds.">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="GoGIF">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="/app.css">
     <title>GoGIF — Make a moment move</title>
   </head>
@@ -25,13 +29,12 @@
 
     <main>
       <section class="hero" aria-labelledby="hero-title">
-        <p class="eyebrow">ONE PROMPT · EVERY FEELING</p>
         <h1 id="hero-title">Make a moment<br><em>move.</em></h1>
-        <p class="hero-copy">Describe the GIF in your head, or find the one that already says it perfectly.</p>
 
         <div class="mode-switch" role="tablist" aria-label="Choose a GIF action">
-          <button class="mode active" data-mode="create" role="tab" aria-selected="true" type="button">Create</button>
-          <button class="mode" data-mode="search" role="tab" aria-selected="false" type="button">Search</button>
+          <button id="create-tab" class="mode active" data-mode="create" role="tab" aria-controls="create-panel" aria-selected="true" type="button">Create</button>
+          <button id="edit-tab" class="mode" data-mode="edit" role="tab" aria-controls="create-panel" aria-selected="false" type="button">Edit</button>
+          <button id="search-tab" class="mode" data-mode="search" role="tab" aria-controls="search-panel" aria-selected="false" type="button">Search</button>
         </div>
 
         <form id="prompt-form" class="prompt-form">
@@ -42,6 +45,20 @@
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 14 0m-6-6 6 6-6 6"/></svg>
           </button>
         </form>
+        <div id="search-options" class="search-options" hidden>
+          <label for="search-scope">Search for</label>
+          <select id="search-scope">
+            <option value="gifs">Actual GIFs</option>
+            <option value="source">Source clips &amp; images</option>
+          </select>
+        </div>
+        <div id="upload-editor" class="upload-editor" hidden>
+          <label class="upload-picker" for="upload-media">
+            <strong id="upload-label">Choose a photo, GIF, or short video</strong>
+          </label>
+          <input id="upload-media" class="sr-only" type="file" accept="image/jpeg,image/png,image/gif,video/mp4,video/quicktime,video/webm,.jpg,.jpeg,.png,.gif,.mp4,.mov,.m4v,.webm">
+          <p id="video-capability" class="capability-note" hidden></p>
+        </div>
         <div id="reference-chip" class="reference-chip" hidden>
           <span>REMIXING · <strong id="reference-label"></strong></span>
           <button id="reference-clear" type="button">Remove</button>
@@ -53,32 +70,45 @@
         </div>
       </section>
 
-      <section id="create-panel" class="workspace" aria-live="polite">
-        <div class="preview-shell">
+      <section id="create-panel" class="workspace" role="tabpanel" aria-live="polite">
+        <div id="preview-shell" class="preview-shell" tabindex="0" aria-label="GIF preview. In Edit mode, drag or use arrow keys to reposition the crop.">
           <div id="preview-empty" class="preview-empty">
             <div class="orbit-demo" aria-hidden="true"><span></span></div>
-            <p>Your idea lands here.</p>
           </div>
           <img id="gif-preview" alt="Your generated GIF" hidden>
-          <div id="working" class="working" hidden>
+          <video id="video-preview" muted playsinline controls hidden></video>
+          <div id="editor-overlay" class="editor-overlay" hidden>
+            <span class="crop-guide"></span>
+            <span id="caption-guide" class="caption-guide" role="slider" tabindex="0" aria-label="Caption vertical position" aria-valuemin="0" aria-valuemax="2" aria-valuenow="2">CAPTION</span>
+          </div>
+          <div id="working" class="working" role="status" aria-live="assertive" hidden>
             <span></span><span></span><span></span>
             <p>Directing the pixels…</p>
           </div>
         </div>
         <div class="workspace-meta">
           <div>
-            <p class="label">CURRENT CUT</p>
             <h2 id="result-title">Ready when you are</h2>
-            <p id="result-note">Generated locally by Go. Add an AI key when you want art direction.</p>
           </div>
           <div class="result-actions">
             <button id="reroll-button" class="secondary-button" type="button" disabled>Reroll</button>
+            <button id="copy-button" class="secondary-button" type="button" disabled>Copy</button>
+            <button id="share-button" class="secondary-button" type="button" disabled>Share</button>
             <a id="download-button" class="primary-button disabled" download="gogif.gif" aria-disabled="true">Download</a>
           </div>
         </div>
         <details class="controls">
           <summary>Fine tune</summary>
           <div class="control-grid">
+            <label id="preset-field" hidden>Export preset
+              <select id="preset-control">
+                <option value="messages">Messages · balanced</option>
+                <option value="discord">Discord · compact</option>
+                <option value="slack">Slack · balanced</option>
+                <option value="quality">Large · quality</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
             <label>Canvas
               <select id="size-control">
                 <option value="480">Square · 480</option>
@@ -93,25 +123,81 @@
                 <option value="40">Hyper</option>
               </select>
             </label>
+            <label>Animation quality
+              <select id="quality-control">
+                <option value="18">Balanced · 18 frames</option>
+                <option value="12">Compact · 12 frames</option>
+                <option value="24">Smooth · 24 frames</option>
+              </select>
+            </label>
+            <label id="target-size-field" hidden>Maximum file size
+              <select id="target-size-control">
+                <option value="8388608">8 MiB</option>
+                <option value="5242880">5 MiB</option>
+                <option value="2097152">2 MiB</option>
+                <option value="15728640">15 MiB</option>
+                <option value="0">No target</option>
+              </select>
+            </label>
+          </div>
+        </details>
+        <details id="edit-controls" class="controls" hidden>
+          <summary>Upload editor</summary>
+          <div class="editor-toolbar" aria-label="Editor history and drafts">
+            <button id="undo-button" class="secondary-button" type="button" disabled>Undo</button>
+            <button id="redo-button" class="secondary-button" type="button" disabled>Redo</button>
+            <button id="save-draft-button" class="secondary-button" type="button">Save draft</button>
+            <label class="draft-label" for="draft-control">Saved drafts</label>
+            <select id="draft-control" aria-label="Saved local drafts"><option value="">No saved drafts</option></select>
+            <button id="load-draft-button" class="secondary-button" type="button" disabled>Load</button>
+            <button id="delete-draft-button" class="secondary-button danger-button" type="button" disabled>Delete</button>
+          </div>
+          <div class="control-grid editor-grid">
+            <label>Caption position
+              <select id="caption-position-control">
+                <option value="bottom">Bottom</option>
+                <option value="top">Top</option>
+                <option value="middle">Middle</option>
+              </select>
+            </label>
+            <label>Motion
+              <select id="motion-control">
+                <option value="pulse">Soft pulse</option>
+                <option value="orbit">Orbit crop</option>
+                <option value="waves">Side-to-side</option>
+                <option value="confetti">Confetti</option>
+              </select>
+            </label>
+            <label>Horizontal crop <output id="crop-x-output">Center</output>
+              <input id="crop-x-control" type="range" min="-1" max="1" step="0.05" value="0">
+            </label>
+            <label>Vertical crop <output id="crop-y-output">Center</output>
+              <input id="crop-y-control" type="range" min="-1" max="1" step="0.05" value="0">
+            </label>
+            <label>Zoom <output id="zoom-output">1.00×</output>
+              <input id="zoom-control" type="range" min="1" max="3" step="0.05" value="1">
+            </label>
+            <label class="video-control">Trim start (seconds)
+              <input id="trim-start-control" type="number" min="0" max="300" step="0.1" value="0" inputmode="decimal">
+            </label>
+            <label class="video-control">Trim end (seconds)
+              <input id="trim-end-control" type="number" min="0.1" max="315" step="0.1" value="3" inputmode="decimal">
+            </label>
+            <label class="check-control"><input id="loop-control" type="checkbox" checked> Loop forever</label>
           </div>
         </details>
       </section>
 
-      <section id="search-panel" class="workspace search-workspace" hidden aria-live="polite">
+      <section id="search-panel" class="workspace search-workspace" role="tabpanel" hidden aria-live="polite">
         <div class="search-heading">
-          <div>
-            <p class="label">THE WIDER GIFVERSE</p>
-            <h2 id="search-title">Search open, rights-aware media</h2>
-          </div>
-          <span class="source-note">FREE · SOURCE-LINKED</span>
+          <h2 id="search-title">Find a GIF</h2>
         </div>
-        <div id="search-message" class="search-message">Enter a topic to search.</div>
+        <div id="search-message" class="search-message" hidden></div>
         <div id="search-results" class="provider-results"></div>
       </section>
     </main>
 
     <footer>
-      <span>Go engine. Tiny interface. Big feelings.</span>
       <a href="https://github.com/brandopakel/gogifgenerator" rel="noreferrer">Source</a>
     </footer>
     <div id="toast" class="toast" role="status" hidden></div>

@@ -19,6 +19,7 @@ type Config struct {
 	ComfyUIInputDir   string
 	ImageGenerator    string
 	BlenderExecutable string
+	FFmpegExecutable  string
 }
 
 func Load() Config {
@@ -36,6 +37,7 @@ func Load() Config {
 		ComfyUIInputDir:   os.Getenv("GOGIF_COMFYUI_INPUT_DIR"),
 		ImageGenerator:    strings.ToLower(strings.TrimSpace(os.Getenv("GOGIF_IMAGE_GENERATOR"))),
 		BlenderExecutable: envOr("GOGIF_BLENDER_EXECUTABLE", "blender"),
+		FFmpegExecutable:  envOr("GOGIF_FFMPEG_EXECUTABLE", "ffmpeg"),
 	}
 }
 

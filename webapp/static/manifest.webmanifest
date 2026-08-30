@@ -1,12 +1,22 @@
 {
   "name": "GoGIF — Make a moment move",
   "short_name": "GoGIF",
+  "id": "/",
   "description": "Create and find the right GIF in seconds.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "categories": ["photo", "utilities", "entertainment"],
   "background_color": "#111318",
   "theme_color": "#111318",
   "icons": [
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "/icon.svg",
       "sizes": "any",

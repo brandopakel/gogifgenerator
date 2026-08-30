@@ -9,6 +9,7 @@
 - GifCities search through the Go provider API
 - Prelinger film search and on-demand provider-hosted video previews
 - Local selected-item WebVTT/SRT quote matching and timed preview
+- NASA image/video search with conservative usage-policy metadata
 - Optional GIPHY search path
 - Extension development shell
 - Tests and CI
@@ -17,14 +18,14 @@ Exit condition: a new contributor can clone, run, create, download, and test wit
 
 ## Milestone 1 — lovable editor
 
-- Upload a photo, short video, or existing GIF
-- Caption editing, drag positioning, crop, timing, trim, and loop controls
-- Undo/redo and saved local drafts
-- Share sheet, clipboard, and export presets for major messaging/social platforms
-- GIF optimization with size/quality targets
-- Accessibility and reduced-motion review
+- Upload a photo, existing GIF, or bounded short video (implemented; video decoding is enabled when local FFmpeg is available)
+- Caption editing, drag/keyboard positioning, crop focus, zoom, video trim, timing, and loop controls (implemented)
+- Undo/redo and explicit browser-local IndexedDB drafts (implemented)
+- Clipboard, download, native file share sheet, and Messages/Discord/Slack export presets (implemented)
+- Iterative GIF optimization with bounded size and animation-quality targets (implemented)
+- Keyboard operation, focus visibility, live status, semantic labels, touch targets, and reduced-motion behavior (reviewed and covered)
 
-Exit condition: ten design partners can make and share a useful GIF in under thirty seconds without guidance.
+Implementation status: feature-complete and ready for device/design-partner testing. Exit condition remains: ten design partners can make and share a useful GIF in under thirty seconds without guidance.
 
 ## Milestone 2 — useful AI, measured
 

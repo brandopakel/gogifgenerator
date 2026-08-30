@@ -7,7 +7,7 @@
     <title>GoGIF</title>
   </head>
   <body>
-    <header><span class="mark"></span><strong>GoGIF</strong><small>DEV</small></header>
+    <header><span class="mark"></span><strong>GoGIF</strong><small>LOCAL</small></header>
     <form id="form">
       <label for="prompt">Make the moment move</label>
       <textarea id="prompt" maxlength="500" placeholder="A flawless deploy..." required></textarea>
@@ -16,6 +16,7 @@
     <p id="status">Local engine · localhost:8080</p>
     <img id="preview" alt="Generated GIF" hidden>
     <a id="download" download="gogif.gif" hidden>Download GIF</a>
+    <a id="editor" href="http://localhost:8080" target="_blank">Open full editor</a>
     <script src="popup.js"></script>
   </body>
 </html>

@@ -2,7 +2,7 @@
 
 **One prompt. The right GIF—made or found.**
 
-GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at home in a browser, an installed phone/desktop PWA, and a browser extension. The current repository is a working vertical slice: enter an idea, receive a real animated GIF, download it, or search Wikimedia Commons, GifCities, and the Prelinger Archives with no account or API key.
+GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at home in a browser, an installed phone/desktop PWA, and a browser extension. The current repository is a working vertical slice: enter an idea, receive a real animated GIF, download it, or search Wikimedia Commons, GifCities, the Prelinger Archives, and NASA's media library with no account or API key.
 
 ## What works now
 
@@ -17,6 +17,10 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Free GifCities search across Internet Archive's archived GeoCities GIF index
 - Free Prelinger archival-film search with item-specific license normalization and on-demand, provider-hosted video previews
 - Local WebVTT/SRT quote matching that jumps a selected Prelinger preview to the matching timecode
+- Free NASA image/video search with provider-hosted playback and conservative media-usage restrictions
+- Private photo, existing-GIF, and optional FFmpeg-backed short-video editor with trim, direct crop/caption manipulation, zoom, timing, and loop controls
+- Undo/redo plus explicit IndexedDB drafts that keep source media and settings in the current browser
+- Messages/Discord/Slack export presets, bounded size optimization, animation-quality controls, clipboard copy, download, and native file sharing
 - Allowlisted, size-bounded temporary Wikimedia reference fetching with deletion after each job
 - Optional direct-to-GIPHY search integration with required attribution
 - MemKV-backed asset catalog with an ephemeral zero-config fallback
@@ -26,7 +30,7 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 
 ## Run it
 
-Requirements: Go 1.26.5 or newer.
+Requirements: Go 1.26.5 or newer. FFmpeg is optional; when its executable is available on `PATH`, GoGIF automatically enables request-scoped MP4, MOV, M4V, and WebM trimming.
 
 ```sh
 make run
@@ -51,7 +55,8 @@ Blender is not a diffusion model: it creates an original prompt-seeded 3D scene 
 | Capability | Key needed? | Cost behavior |
 | --- | --- | --- |
 | Go renderer, Blender, local ComfyUI, MemKV | No | Runs on hardware you own |
-| Wikimedia Commons, GifCities, and Prelinger search | No | Source media remains provider-hosted; normal bandwidth only |
+| Local short-video trim with FFmpeg | No | Optional executable on the GoGIF server; source and decoded frames are request-scoped |
+| Wikimedia Commons, GifCities, Prelinger, and NASA search | No | Source media remains provider-hosted; normal bandwidth only |
 | Public ungated model checkpoint | Usually no | License and hardware requirements are model-specific |
 | GIPHY search | Yes, `GIPHY_API_KEY` | Optional provider integration |
 | OpenAI art-direction planner | Yes, `OPENAI_API_KEY` plus `GOGIF_ENABLE_PAID_AI=true` | Paid opt-in; never part of zero-spend mode |
@@ -98,12 +103,14 @@ The GIF bytes go to content-addressed blob storage; MemKV holds the searchable r
 | `GET` | `/api/v1/providers/wikimedia/search?q=...` | Search Wikimedia Commons with normalized rights metadata |
 | `GET` | `/api/v1/providers/gifcities/search?q=...` | Search GifCities and return source-linked archived GIFs |
 | `GET` | `/api/v1/providers/prelinger/search?q=...` | Search Prelinger archival films without downloading video |
+| `GET` | `/api/v1/providers/nasa/search?q=...` | Search NASA's image/video library without downloading media |
 | `GET` | `/api/v1/providers/{provider}/items/{id}` | Revalidate an item and resolve its current renditions/captions |
 | `GET` | `/api/v1/providers/{provider}/items/{id}/quote?q=...` | Match a quote against selected-item captions and return its time range |
 | `GET` | `/api/v1/gifs/{id}` | Serve an original GoGIF asset when persistent local storage is enabled |
 | `POST` | `/api/v1/gifs/plan` | Inspect the prompt-derived animation plan |
 | `POST` | `/api/v1/gifs/generate` | Stream an `image/gif` response |
 | `POST` | `/api/v1/gifs/generate-from-reference` | Revalidate, temporarily fetch, locally transform, then delete an approved provider reference |
+| `POST` | `/api/v1/gifs/generate-from-upload` | Edit a bounded request-scoped JPEG, PNG, GIF, MP4, MOV, M4V, or WebM; optionally optimize to a target size |
 
 Example:
 
@@ -122,7 +129,7 @@ The first release is intentionally a modular monolith:
 phone / desktop PWA ─┐
 browser extension ───┼──> Go HTTP API ──┬─> local planner
 web browser ─────────┘                   ├─> Go / Blender / ComfyUI ──> animated GIF
-                                        └─> provider adapters ──> Wikimedia / GifCities / Prelinger
+                                        └─> provider adapters ──> Wikimedia / GifCities / Prelinger / NASA
 ```
 
 The planner speaks a small, validated animation-spec contract. That keeps model vendors, renderers, and future native clients replaceable. The OpenAI adapter uses the Responses API with Structured Outputs, following the [official OpenAI API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).
@@ -137,6 +144,8 @@ Read [Architecture](docs/ARCHITECTURE.md) for boundaries and scaling decisions, 
 4. Use the toolbar popup to generate against `http://localhost:8080`.
 
 The production extension will receive an environment-specific API URL during packaging; the checked-in shell deliberately targets local development.
+
+Run `make builds` to create standalone server binaries for macOS, Windows, and Linux plus local Chrome, Edge, and Firefox extension ZIPs in `dist/`. See [Testing builds](docs/TEST_BUILDS.md) for iPhone, desktop, and extension instructions.
 
 ## Quality checks
 

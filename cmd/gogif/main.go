@@ -19,10 +19,13 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
 	"github.com/brandopakel/gogifgenerator/internal/provider/gifcities"
+	"github.com/brandopakel/gogifgenerator/internal/provider/nasa"
 	"github.com/brandopakel/gogifgenerator/internal/provider/prelinger"
 	"github.com/brandopakel/gogifgenerator/internal/provider/wikimedia"
 	"github.com/brandopakel/gogifgenerator/internal/reference"
 	"github.com/brandopakel/gogifgenerator/internal/store"
+	"github.com/brandopakel/gogifgenerator/internal/video"
+	"github.com/brandopakel/gogifgenerator/internal/video/ffmpeg"
 )
 
 func main() {
@@ -89,15 +92,28 @@ func main() {
 		logger.Error("configure Prelinger Archive", "error", err)
 		os.Exit(1)
 	}
+	nasaLibrary, err := nasa.New(nasa.Options{})
+	if err != nil {
+		logger.Error("configure NASA Image and Video Library", "error", err)
+		os.Exit(1)
+	}
 	mediaProviders := []provider.Provider{
 		provider.Cached{Next: commons, KV: catalog, TTL: 15 * time.Minute},
 		provider.Cached{Next: cities, KV: catalog, TTL: 15 * time.Minute},
 		provider.Cached{Next: archive, KV: catalog, TTL: 15 * time.Minute},
+		provider.Cached{Next: nasaLibrary, KV: catalog, TTL: 15 * time.Minute},
 	}
 	referenceFetcher, err := reference.New(reference.Options{})
 	if err != nil {
 		logger.Error("configure temporary reference fetcher", "error", err)
 		os.Exit(1)
+	}
+	var videoDecoder video.Decoder
+	configuredVideoDecoder, err := ffmpeg.New(ffmpeg.Options{Executable: settings.FFmpegExecutable})
+	if err != nil {
+		logger.Info("short-video editor disabled; install FFmpeg or set GOGIF_FFMPEG_EXECUTABLE", "error", err)
+	} else {
+		videoDecoder = configuredVideoDecoder
 	}
 	var stillGenerator imagegen.Generator
 	imageGeneratorName := settings.ImageGenerator
@@ -144,8 +160,12 @@ func main() {
 		Providers:        mediaProviders,
 		ImageGenerator:   stillGenerator,
 		ReferenceFetcher: referenceFetcher,
+		VideoDecoder:     videoDecoder,
 	})
 	writeTimeout := 30 * time.Second
+	if videoDecoder != nil {
+		writeTimeout = 90 * time.Second
+	}
 	if stillGenerator != nil {
 		writeTimeout = 5 * time.Minute
 	}
@@ -153,7 +173,7 @@ func main() {
 		Addr:              settings.Address,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
+		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       60 * time.Second,
 	}

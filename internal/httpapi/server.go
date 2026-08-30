@@ -5,20 +5,25 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
+	stdgif "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
 	"io/fs"
 	"log/slog"
+	"math"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
+	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
 	"github.com/brandopakel/gogifgenerator/internal/media"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
@@ -26,6 +31,7 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/reference"
 	"github.com/brandopakel/gogifgenerator/internal/render"
 	"github.com/brandopakel/gogifgenerator/internal/store"
+	"github.com/brandopakel/gogifgenerator/internal/video"
 	"github.com/brandopakel/gogifgenerator/webapp"
 )
 
@@ -42,6 +48,7 @@ type Options struct {
 	Providers        []provider.Provider
 	ImageGenerator   imagegen.Generator
 	ReferenceFetcher *reference.Fetcher
+	VideoDecoder     video.Decoder
 }
 
 func New(options Options) http.Handler {
@@ -63,6 +70,7 @@ func New(options Options) http.Handler {
 	mux.HandleFunc("POST /api/v1/gifs/plan", server.plan)
 	mux.HandleFunc("POST /api/v1/gifs/generate", server.generate)
 	mux.HandleFunc("POST /api/v1/gifs/generate-from-reference", server.generateFromReference)
+	mux.HandleFunc("POST /api/v1/gifs/generate-from-upload", server.generateFromUpload)
 	mux.HandleFunc("GET /api/v1/gifs/{id}", server.generated)
 	mux.Handle("/", staticHandler())
 	return server.securityHeaders(server.accessLog(mux))
@@ -120,6 +128,7 @@ func (s *server) publicConfig(w http.ResponseWriter, _ *http.Request) {
 		"giphy_api_key":   s.options.GiphyAPIKey,
 		"providers":       providers,
 		"image_generator": imageGeneratorDescriptor(s.options.ImageGenerator),
+		"video_editor":    videoDecoderDescriptor(s.options.VideoDecoder),
 	})
 }
 
@@ -257,6 +266,293 @@ func (s *server) generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeGenerated(w, r, request, result, data, engine, nil)
+}
+
+const (
+	maxUploadBytes           = 20 << 20
+	maxUploadRequest         = maxUploadBytes + (256 << 10)
+	maxUploadDimension       = 8192
+	maxUploadPixels          = 32_000_000
+	maxUploadSourceFrames    = 120
+	maxUploadGIFPixels       = 48_000_000
+	maxUploadCompositePixels = 24_000_000
+	minTargetGIFBytes        = 256 << 10
+	maxTargetGIFBytes        = 20 << 20
+	maxVideoStartMS          = 300_000
+	maxVideoDurationMS       = 15_000
+)
+
+type uploadGenerateRequest struct {
+	Caption         string
+	Width           int
+	Height          int
+	Frames          int
+	DelayMS         int
+	Motion          string
+	Seed            int64
+	CropX           float64
+	CropY           float64
+	Zoom            float64
+	CaptionPosition string
+	Loop            bool
+	TrimStartMS     int
+	TrimEndMS       int
+	MaxBytes        int
+}
+
+func (s *server) generateFromUpload(w http.ResponseWriter, r *http.Request) {
+	request, uploaded, ok := decodeUploadRequest(w, r)
+	if !ok {
+		return
+	}
+
+	spec := gifdomain.Defaults()
+	spec.Width, spec.Height = request.Width, request.Height
+	spec.Frames, spec.DelayMS = request.Frames, request.DelayMS
+	spec.Caption, spec.Motion, spec.Seed = request.Caption, request.Motion, request.Seed
+	spec.ShowPrompt = strings.TrimSpace(request.Caption) != ""
+	spec, err := spec.Normalize()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	options := render.EditOptions{
+		CropX: request.CropX, CropY: request.CropY, Zoom: request.Zoom,
+		CaptionPosition: request.CaptionPosition, Loop: request.Loop,
+	}
+	configuration, detectedFormat, imageConfigErr := image.DecodeConfig(bytes.NewReader(uploaded.Data))
+	var renderSource func(gifdomain.Spec) ([]byte, error)
+	engine := "upload-photo+go"
+	if imageConfigErr == nil && (detectedFormat == "jpeg" || detectedFormat == "png" || detectedFormat == "gif") {
+		if configuration.Width < 1 || configuration.Height < 1 || configuration.Width > maxUploadDimension || configuration.Height > maxUploadDimension ||
+			int64(configuration.Width)*int64(configuration.Height) > maxUploadPixels {
+			writeError(w, http.StatusUnprocessableEntity, "uploaded image dimensions are too large")
+			return
+		}
+		if detectedFormat == "gif" {
+			sourceFrames, sourcePixels, inspectErr := inspectGIF(uploaded.Data)
+			compositePixels := int64(configuration.Width) * int64(configuration.Height) * int64(min(sourceFrames, spec.Frames))
+			if inspectErr != nil {
+				writeError(w, http.StatusUnsupportedMediaType, "uploaded GIF could not be decoded")
+				return
+			}
+			if sourceFrames > maxUploadSourceFrames || sourcePixels > maxUploadGIFPixels || compositePixels > maxUploadCompositePixels {
+				writeError(w, http.StatusUnprocessableEntity, "uploaded GIF is too complex to edit safely")
+				return
+			}
+			animation, decodeErr := stdgif.DecodeAll(bytes.NewReader(uploaded.Data))
+			if decodeErr != nil {
+				writeError(w, http.StatusUnsupportedMediaType, "uploaded GIF could not be decoded")
+				return
+			}
+			if len(animation.Image) > 1 {
+				engine = "upload-gif+go"
+				renderSource = func(candidate gifdomain.Spec) ([]byte, error) {
+					var output bytes.Buffer
+					err := render.EditedGIF(&output, animation, candidate, options)
+					return output.Bytes(), err
+				}
+			} else {
+				source := animation.Image[0]
+				renderSource = func(candidate gifdomain.Spec) ([]byte, error) {
+					var output bytes.Buffer
+					err := render.EditedImageGIF(&output, source, candidate, options)
+					return output.Bytes(), err
+				}
+			}
+		} else {
+			source, _, decodeErr := image.Decode(bytes.NewReader(uploaded.Data))
+			if decodeErr != nil {
+				writeError(w, http.StatusUnsupportedMediaType, "uploaded image could not be decoded")
+				return
+			}
+			renderSource = func(candidate gifdomain.Spec) ([]byte, error) {
+				var output bytes.Buffer
+				err := render.EditedImageGIF(&output, source, candidate, options)
+				return output.Bytes(), err
+			}
+		}
+	} else if isVideoUpload(uploaded) {
+		if !videoDecoderAvailable(s.options.VideoDecoder) {
+			writeError(w, http.StatusServiceUnavailable, "short-video editing requires local FFmpeg; install it and restart GoGIF")
+			return
+		}
+		animation, decodeErr := s.options.VideoDecoder.Decode(r.Context(), video.Request{
+			Data: uploaded.Data, Filename: uploaded.Filename, StartMS: request.TrimStartMS, EndMS: request.TrimEndMS, Frames: spec.Frames,
+		})
+		if decodeErr != nil {
+			s.options.Logger.Warn("decode uploaded video", "error", decodeErr)
+			writeError(w, http.StatusUnprocessableEntity, "video could not be decoded; check the trim range and local FFmpeg codecs")
+			return
+		}
+		engine = "upload-video+" + s.options.VideoDecoder.Descriptor().ID + "+go"
+		renderSource = func(candidate gifdomain.Spec) ([]byte, error) {
+			var output bytes.Buffer
+			err := render.EditedGIF(&output, animation, candidate, options)
+			return output.Bytes(), err
+		}
+	} else {
+		writeError(w, http.StatusUnsupportedMediaType, "upload must be a JPEG, PNG, GIF, MP4, MOV, M4V, or WebM file")
+		return
+	}
+
+	data, exportedSpec, err := optimizeUploadGIF(spec, request.MaxBytes, renderSource)
+	if err != nil {
+		if errors.Is(err, errTargetSize) {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+		} else {
+			writeError(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	prompt := strings.TrimSpace(request.Caption)
+	if prompt == "" {
+		prompt = "Edited upload"
+	}
+	w.Header().Set("X-GoGIF-Width", strconv.Itoa(exportedSpec.Width))
+	w.Header().Set("X-GoGIF-Height", strconv.Itoa(exportedSpec.Height))
+	w.Header().Set("X-GoGIF-Frames", strconv.Itoa(exportedSpec.Frames))
+	w.Header().Set("X-GoGIF-Bytes", strconv.Itoa(len(data)))
+	if request.MaxBytes > 0 {
+		w.Header().Set("X-GoGIF-Target-Bytes", strconv.Itoa(request.MaxBytes))
+	}
+	s.writeGenerated(w, r, planner.Request{
+		Prompt: prompt, Width: exportedSpec.Width, Height: exportedSpec.Height, Frames: exportedSpec.Frames,
+		DelayMS: exportedSpec.DelayMS, Seed: exportedSpec.Seed,
+	}, planner.Result{Spec: exportedSpec, Engine: engine}, data, engine, nil)
+}
+
+var errTargetSize = errors.New("could not meet the requested GIF size target at the minimum 128px and 4 frames")
+
+func optimizeUploadGIF(spec gifdomain.Spec, maxBytes int, renderSource func(gifdomain.Spec) ([]byte, error)) ([]byte, gifdomain.Spec, error) {
+	candidate := spec
+	for attempt := 0; attempt < 12; attempt++ {
+		data, err := renderSource(candidate)
+		if err != nil {
+			return nil, gifdomain.Spec{}, err
+		}
+		if maxBytes == 0 || len(data) <= maxBytes {
+			return data, candidate, nil
+		}
+		if candidate.Width == gifdomain.MinDimension && candidate.Height == gifdomain.MinDimension && candidate.Frames == gifdomain.MinFrames {
+			return nil, gifdomain.Spec{}, errTargetSize
+		}
+		ratio := float64(maxBytes) / float64(len(data))
+		scale := min(0.82, max(0.55, math.Sqrt(ratio)*0.94))
+		candidate.Width = reducedDimension(candidate.Width, scale)
+		candidate.Height = reducedDimension(candidate.Height, scale)
+		candidate.Frames = max(gifdomain.MinFrames, min(candidate.Frames-1, int(math.Floor(float64(candidate.Frames)*0.78))))
+	}
+	return nil, gifdomain.Spec{}, errTargetSize
+}
+
+func reducedDimension(value int, scale float64) int {
+	if value <= gifdomain.MinDimension {
+		return gifdomain.MinDimension
+	}
+	reduced := int(math.Floor(float64(value)*scale/16)) * 16
+	return max(gifdomain.MinDimension, min(value-1, reduced))
+}
+
+type uploadedMedia struct {
+	Data     []byte
+	Filename string
+}
+
+func isVideoUpload(uploaded uploadedMedia) bool {
+	if len(uploaded.Data) >= 12 && string(uploaded.Data[4:8]) == "ftyp" {
+		return true
+	}
+	return len(uploaded.Data) >= 4 && bytes.Equal(uploaded.Data[:4], []byte{0x1a, 0x45, 0xdf, 0xa3})
+}
+
+func inspectGIF(data []byte) (int, int64, error) {
+	if len(data) < 13 || (string(data[:6]) != "GIF87a" && string(data[:6]) != "GIF89a") {
+		return 0, 0, errors.New("invalid GIF header")
+	}
+	canvasWidth := int(binary.LittleEndian.Uint16(data[6:8]))
+	canvasHeight := int(binary.LittleEndian.Uint16(data[8:10]))
+	if canvasWidth < 1 || canvasHeight < 1 {
+		return 0, 0, errors.New("invalid GIF canvas")
+	}
+	position := 13
+	if data[10]&0x80 != 0 {
+		position += 3 * (1 << ((data[10] & 0x07) + 1))
+	}
+	if position > len(data) {
+		return 0, 0, errors.New("truncated GIF color table")
+	}
+	frames := 0
+	var pixels int64
+	for position < len(data) {
+		block := data[position]
+		position++
+		switch block {
+		case 0x3b:
+			if frames == 0 {
+				return 0, 0, errors.New("GIF has no frames")
+			}
+			return frames, pixels, nil
+		case 0x21:
+			if position >= len(data) {
+				return 0, 0, errors.New("truncated GIF extension")
+			}
+			position++ // Extension label.
+			var err error
+			position, err = skipGIFSubBlocks(data, position)
+			if err != nil {
+				return 0, 0, err
+			}
+		case 0x2c:
+			if position+9 > len(data) {
+				return 0, 0, errors.New("truncated GIF image descriptor")
+			}
+			left := int(binary.LittleEndian.Uint16(data[position : position+2]))
+			top := int(binary.LittleEndian.Uint16(data[position+2 : position+4]))
+			width := int(binary.LittleEndian.Uint16(data[position+4 : position+6]))
+			height := int(binary.LittleEndian.Uint16(data[position+6 : position+8]))
+			packed := data[position+8]
+			position += 9
+			if width < 1 || height < 1 || left+width > canvasWidth || top+height > canvasHeight {
+				return 0, 0, errors.New("invalid GIF frame bounds")
+			}
+			frames++
+			pixels += int64(width) * int64(height)
+			if frames > maxUploadSourceFrames || pixels > maxUploadGIFPixels {
+				return frames, pixels, nil
+			}
+			if packed&0x80 != 0 {
+				position += 3 * (1 << ((packed & 0x07) + 1))
+			}
+			if position >= len(data) {
+				return 0, 0, errors.New("truncated GIF image data")
+			}
+			position++ // LZW minimum code size.
+			var err error
+			position, err = skipGIFSubBlocks(data, position)
+			if err != nil {
+				return 0, 0, err
+			}
+		default:
+			return 0, 0, errors.New("invalid GIF block")
+		}
+	}
+	return 0, 0, errors.New("GIF trailer is missing")
+}
+
+func skipGIFSubBlocks(data []byte, position int) (int, error) {
+	for position < len(data) {
+		size := int(data[position])
+		position++
+		if size == 0 {
+			return position, nil
+		}
+		if position+size > len(data) {
+			return 0, errors.New("truncated GIF data block")
+		}
+		position += size
+	}
+	return 0, errors.New("truncated GIF data blocks")
 }
 
 type referenceGenerateRequest struct {
@@ -456,6 +752,27 @@ func imageGeneratorDescriptor(generator imagegen.Generator) any {
 	return generator.Descriptor()
 }
 
+func videoDecoderDescriptor(decoder video.Decoder) any {
+	if !videoDecoderAvailable(decoder) {
+		return map[string]any{"enabled": false}
+	}
+	descriptor := decoder.Descriptor()
+	return map[string]any{"enabled": true, "id": descriptor.ID, "label": descriptor.Label, "local": descriptor.Local}
+}
+
+func videoDecoderAvailable(decoder video.Decoder) bool {
+	if decoder == nil {
+		return false
+	}
+	value := reflect.ValueOf(decoder)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return !value.IsNil()
+	default:
+		return true
+	}
+}
+
 func (s *server) generated(w http.ResponseWriter, r *http.Request) {
 	if s.options.GeneratedReader == nil {
 		http.NotFound(w, r)
@@ -502,6 +819,204 @@ func decodeRequest(w http.ResponseWriter, r *http.Request) (planner.Request, boo
 	return request, true
 }
 
+func decodeUploadRequest(w http.ResponseWriter, r *http.Request) (uploadGenerateRequest, uploadedMedia, bool) {
+	empty := uploadedMedia{}
+	if !strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		writeError(w, http.StatusUnsupportedMediaType, "upload request must use multipart/form-data")
+		return uploadGenerateRequest{}, empty, false
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadRequest)
+	if err := r.ParseMultipartForm(2 << 20); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			writeError(w, http.StatusRequestEntityTooLarge, "uploaded media must not exceed 20 MiB")
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid multipart upload: "+err.Error())
+		}
+		return uploadGenerateRequest{}, empty, false
+	}
+	defer r.MultipartForm.RemoveAll()
+	allowedValues := map[string]bool{
+		"caption": true, "width": true, "height": true, "frames": true, "delay_ms": true,
+		"motion": true, "seed": true, "crop_x": true, "crop_y": true, "zoom": true,
+		"caption_position": true, "loop": true, "trim_start_ms": true, "trim_end_ms": true,
+		"max_bytes": true,
+	}
+	for key, values := range r.MultipartForm.Value {
+		if !allowedValues[key] || len(values) != 1 {
+			writeError(w, http.StatusBadRequest, "unsupported or repeated upload field: "+key)
+			return uploadGenerateRequest{}, empty, false
+		}
+	}
+	for key := range r.MultipartForm.File {
+		if key != "media" {
+			writeError(w, http.StatusBadRequest, "unsupported upload file field: "+key)
+			return uploadGenerateRequest{}, empty, false
+		}
+	}
+	mediaFiles := r.MultipartForm.File["media"]
+	if len(mediaFiles) != 1 {
+		writeError(w, http.StatusBadRequest, "exactly one media file is required")
+		return uploadGenerateRequest{}, empty, false
+	}
+	if mediaFiles[0].Size > maxUploadBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "uploaded media must not exceed 20 MiB")
+		return uploadGenerateRequest{}, empty, false
+	}
+	file, err := mediaFiles[0].Open()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "could not read uploaded media")
+		return uploadGenerateRequest{}, empty, false
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, maxUploadBytes+1))
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil {
+		writeError(w, http.StatusBadRequest, "could not read uploaded media")
+		return uploadGenerateRequest{}, empty, false
+	}
+	if len(data) > maxUploadBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "uploaded media must not exceed 20 MiB")
+		return uploadGenerateRequest{}, empty, false
+	}
+
+	values := r.MultipartForm.Value
+	caption := strings.TrimSpace(uploadValue(values, "caption", ""))
+	if len([]rune(caption)) > 42 {
+		writeError(w, http.StatusBadRequest, "caption must not exceed 42 characters")
+		return uploadGenerateRequest{}, empty, false
+	}
+	width, err := uploadInt(values, "width", 480)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return uploadGenerateRequest{}, empty, false
+	}
+	height, err := uploadInt(values, "height", 480)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return uploadGenerateRequest{}, empty, false
+	}
+	frames, err := uploadInt(values, "frames", 18)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return uploadGenerateRequest{}, empty, false
+	}
+	delayMS, err := uploadInt(values, "delay_ms", 70)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return uploadGenerateRequest{}, empty, false
+	}
+	seed, err := uploadInt64(values, "seed", 1)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return uploadGenerateRequest{}, empty, false
+	}
+	cropX, err := uploadFloat(values, "crop_x", 0)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return uploadGenerateRequest{}, empty, false
+	}
+	cropY, err := uploadFloat(values, "crop_y", 0)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return uploadGenerateRequest{}, empty, false
+	}
+	zoom, err := uploadFloat(values, "zoom", 1)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return uploadGenerateRequest{}, empty, false
+	}
+	loop, err := uploadBool(values, "loop", true)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return uploadGenerateRequest{}, empty, false
+	}
+	trimStartMS, err := uploadInt(values, "trim_start_ms", 0)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return uploadGenerateRequest{}, empty, false
+	}
+	trimEndMS, err := uploadInt(values, "trim_end_ms", 3000)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return uploadGenerateRequest{}, empty, false
+	}
+	if trimStartMS < 0 || trimStartMS > maxVideoStartMS || trimEndMS <= trimStartMS || trimEndMS-trimStartMS > maxVideoDurationMS {
+		writeError(w, http.StatusBadRequest, "trim range must be positive, start within 5 minutes, and no longer than 15 seconds")
+		return uploadGenerateRequest{}, empty, false
+	}
+	maxBytes, err := uploadInt(values, "max_bytes", 0)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return uploadGenerateRequest{}, empty, false
+	}
+	if maxBytes != 0 && (maxBytes < minTargetGIFBytes || maxBytes > maxTargetGIFBytes) {
+		writeError(w, http.StatusBadRequest, "max_bytes must be between 256 KiB and 20 MiB")
+		return uploadGenerateRequest{}, empty, false
+	}
+	return uploadGenerateRequest{
+		Caption: caption, Width: width, Height: height, Frames: frames, DelayMS: delayMS,
+		Motion: uploadValue(values, "motion", "pulse"), Seed: seed,
+		CropX: cropX, CropY: cropY, Zoom: zoom,
+		CaptionPosition: uploadValue(values, "caption_position", "bottom"), Loop: loop,
+		TrimStartMS: trimStartMS, TrimEndMS: trimEndMS, MaxBytes: maxBytes,
+	}, uploadedMedia{Data: data, Filename: mediaFiles[0].Filename}, true
+}
+
+func uploadValue(values map[string][]string, key, fallback string) string {
+	if entries := values[key]; len(entries) == 1 {
+		return entries[0]
+	}
+	return fallback
+}
+
+func uploadInt(values map[string][]string, key string, fallback int) (int, error) {
+	raw := uploadValue(values, key, "")
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number", key)
+	}
+	return value, nil
+}
+
+func uploadInt64(values map[string][]string, key string, fallback int64) (int64, error) {
+	raw := uploadValue(values, key, "")
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number", key)
+	}
+	return value, nil
+}
+
+func uploadFloat(values map[string][]string, key string, fallback float64) (float64, error) {
+	raw := uploadValue(values, key, "")
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number", key)
+	}
+	return value, nil
+}
+
+func uploadBool(values map[string][]string, key string, fallback bool) (bool, error) {
+	raw := uploadValue(values, key, "")
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s must be true or false", key)
+	}
+	return value, nil
+}
+
 func staticHandler() http.Handler {
 	files := webapp.Files()
 	fileServer := http.FileServer(http.FS(files))
@@ -527,7 +1042,7 @@ func (s *server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data: https://*.giphy.com https://upload.wikimedia.org https://blob.gifcities.org https://archive.org; media-src 'self' blob: https://archive.org https://*.archive.org; connect-src 'self' https://api.giphy.com; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data: https://*.giphy.com https://upload.wikimedia.org https://blob.gifcities.org https://archive.org https://images-assets.nasa.gov; media-src 'self' blob: https://archive.org https://*.archive.org https://images-assets.nasa.gov; connect-src 'self' https://api.giphy.com; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
 }

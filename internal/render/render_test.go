@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/gif"
 	"testing"
 
@@ -58,5 +59,58 @@ func TestImageGIFProducesDecodableAnimation(t *testing.T) {
 	}
 	if len(animation.Image) != spec.Frames || animation.Image[0].Bounds().Dx() != spec.Width {
 		t.Fatalf("animation = %d frames at %dx%d", len(animation.Image), animation.Image[0].Bounds().Dx(), animation.Image[0].Bounds().Dy())
+	}
+}
+
+func TestEditedImageGIFAppliesEditorOptions(t *testing.T) {
+	source := image.NewRGBA(image.Rect(0, 0, 40, 30))
+	draw.Draw(source, source.Bounds(), &image.Uniform{C: color.RGBA{R: 200, G: 40, B: 80, A: 255}}, image.Point{}, draw.Src)
+	spec := gifdomain.Defaults()
+	spec.Width, spec.Height, spec.Frames = 128, 128, 4
+	spec.Caption = "top caption"
+	var output bytes.Buffer
+	if err := EditedImageGIF(&output, source, spec, EditOptions{
+		CropX: .5, CropY: -.5, Zoom: 1.4, CaptionPosition: "top", Loop: false,
+	}); err != nil {
+		t.Fatalf("EditedImageGIF() error = %v", err)
+	}
+	decoded, err := gif.DecodeAll(bytes.NewReader(output.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Image) != 4 || decoded.LoopCount != -1 {
+		t.Fatalf("frames = %d; loop = %d", len(decoded.Image), decoded.LoopCount)
+	}
+}
+
+func TestEditedGIFBoundsFrameCount(t *testing.T) {
+	source := &gif.GIF{Config: image.Config{Width: 20, Height: 20}, LoopCount: 0}
+	for frameNumber := range 8 {
+		frame := image.NewPaletted(image.Rect(0, 0, 20, 20), color.Palette{color.Black, color.White})
+		frame.SetColorIndex(frameNumber, frameNumber, 1)
+		source.Image = append(source.Image, frame)
+		source.Delay = append(source.Delay, 5)
+		source.Disposal = append(source.Disposal, gif.DisposalNone)
+	}
+	spec := gifdomain.Defaults()
+	spec.Width, spec.Height, spec.Frames = 128, 128, 4
+	var output bytes.Buffer
+	if err := EditedGIF(&output, source, spec, EditOptions{Zoom: 1, CaptionPosition: "bottom", Loop: true}); err != nil {
+		t.Fatalf("EditedGIF() error = %v", err)
+	}
+	decoded, err := gif.DecodeAll(bytes.NewReader(output.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Image) != 4 || decoded.LoopCount != 0 {
+		t.Fatalf("frames = %d; loop = %d", len(decoded.Image), decoded.LoopCount)
+	}
+}
+
+func TestEditedImageGIFRejectsInvalidEditorOptions(t *testing.T) {
+	var output bytes.Buffer
+	err := EditedImageGIF(&output, image.NewRGBA(image.Rect(0, 0, 10, 10)), gifdomain.Defaults(), EditOptions{Zoom: 4})
+	if err == nil {
+		t.Fatal("EditedImageGIF() expected an error")
 	}
 }

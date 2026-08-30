@@ -36,6 +36,10 @@ var glyphs = map[rune][7]uint8{
 }
 
 func drawCaption(frame *image.Paletted, value string, frameNumber, frames int) {
+	drawCaptionAt(frame, value, frameNumber, frames, "bottom")
+}
+
+func drawCaptionAt(frame *image.Paletted, value string, frameNumber, frames int, position string) {
 	value = strings.ToUpper(strings.TrimSpace(value))
 	if value == "" {
 		return
@@ -49,6 +53,12 @@ func drawCaption(frame *image.Paletted, value string, frameNumber, frames int) {
 	x := (width - textWidth) / 2
 	bounce := int(math.Sin(2*math.Pi*float64(frameNumber)/float64(frames)) * float64(max(1, scale/2)))
 	y := height - textHeight - max(18, height/14) + bounce
+	switch position {
+	case "top":
+		y = max(18, height/14) + bounce
+	case "middle":
+		y = (height-textHeight)/2 + bounce
+	}
 	padding := max(6, scale*2)
 	drawRect(frame, x-padding, y-padding, x+textWidth+padding, y+textHeight+padding, 0)
 	foreground := uint8(len(frame.Palette) - 1)
