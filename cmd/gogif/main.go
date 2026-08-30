@@ -20,7 +20,10 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen/blender"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen/comfyui"
+	openaiimage "github.com/brandopakel/gogifgenerator/internal/imagegen/openai"
 	"github.com/brandopakel/gogifgenerator/internal/media"
+	"github.com/brandopakel/gogifgenerator/internal/modelgen"
+	modelcomfy "github.com/brandopakel/gogifgenerator/internal/modelgen/comfyui"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
 	"github.com/brandopakel/gogifgenerator/internal/provider/gifcities"
@@ -80,6 +83,8 @@ func main() {
 	library := media.NewLibrary(media.NewRepository(catalog), blobs)
 	var generatedSaver media.GeneratedSaver = library
 	var generatedReader media.GeneratedReader = library
+	var modelSaver media.ModelSaver = library
+	var modelReader media.ModelReader = library
 	commons, err := wikimedia.New(wikimedia.Options{})
 	if err != nil {
 		logger.Error("configure Wikimedia Commons", "error", err)
@@ -120,8 +125,12 @@ func main() {
 	}
 	var stillGenerator imagegen.Generator
 	imageGeneratorName := settings.ImageGenerator
-	if imageGeneratorName == "" && settings.ComfyUICheckpoint != "" {
-		imageGeneratorName = "comfyui"
+	if imageGeneratorName == "" {
+		if settings.PaidImageEnabled && settings.OpenAIAPIKey != "" {
+			imageGeneratorName = "openai"
+		} else if settings.ComfyUICheckpoint != "" {
+			imageGeneratorName = "comfyui"
+		}
 	}
 	switch imageGeneratorName {
 	case "":
@@ -145,9 +154,45 @@ func main() {
 			os.Exit(1)
 		}
 		stillGenerator = generator
+	case "openai":
+		if !settings.PaidImageEnabled || settings.OpenAIAPIKey == "" {
+			logger.Error("configure OpenAI image generation", "error", "GOGIF_ENABLE_PAID_IMAGE_GENERATION=true and OPENAI_API_KEY are required")
+			os.Exit(1)
+		}
+		generator, err := openaiimage.New(openaiimage.Options{
+			APIKey: settings.OpenAIAPIKey, Model: settings.OpenAIImageModel,
+			Quality: settings.OpenAIImageQuality, BaseURL: settings.OpenAIBaseURL,
+		})
+		if err != nil {
+			logger.Error("configure OpenAI image generation", "error", err)
+			os.Exit(1)
+		}
+		stillGenerator = generator
 	default:
-		logger.Error("configure local image generator", "error", "GOGIF_IMAGE_GENERATOR must be blender or comfyui")
+		logger.Error("configure image generator", "error", "GOGIF_IMAGE_GENERATOR must be blender, comfyui, or openai")
 		os.Exit(1)
+	}
+
+	var modelGenerator modelgen.Generator
+	if settings.ModelGenerator != "" {
+		switch settings.ModelGenerator {
+		case "comfyui":
+			if !settings.PaidModelEnabled || settings.ComfyUIAPIKey == "" {
+				logger.Error("configure ComfyUI 3D generation", "error", "GOGIF_ENABLE_PAID_MODEL_GENERATION=true and COMFY_CLOUD_API_KEY are required")
+				os.Exit(1)
+			}
+			generator, err := modelcomfy.New(modelcomfy.Options{
+				Endpoint: settings.ComfyUIModelURL, APIKey: settings.ComfyUIAPIKey, DefaultRecipe: settings.ComfyUIModelRecipe,
+			})
+			if err != nil {
+				logger.Error("configure ComfyUI 3D generation", "error", err)
+				os.Exit(1)
+			}
+			modelGenerator = generator
+		default:
+			logger.Error("configure model generator", "error", "GOGIF_MODEL_GENERATOR must be comfyui")
+			os.Exit(1)
+		}
 	}
 
 	pipelineStatus := cinematic.DisabledDescriptor([]cinematic.StageDescriptor{
@@ -209,8 +254,11 @@ func main() {
 		CatalogBackend:    catalogBackend,
 		GeneratedSaver:    generatedSaver,
 		GeneratedReader:   generatedReader,
+		ModelSaver:        modelSaver,
+		ModelReader:       modelReader,
 		Providers:         mediaProviders,
 		ImageGenerator:    stillGenerator,
+		ModelGenerator:    modelGenerator,
 		CinematicRenderer: cinematicRenderer,
 		CinematicStatus:   pipelineStatus,
 		ReferenceFetcher:  referenceFetcher,
@@ -224,6 +272,9 @@ func main() {
 		writeTimeout = 5 * time.Minute
 	}
 	if cinematicRenderer != nil {
+		writeTimeout = 30 * time.Minute
+	}
+	if modelGenerator != nil {
 		writeTimeout = 30 * time.Minute
 	}
 	server := &http.Server{

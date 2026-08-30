@@ -21,6 +21,7 @@ import (
 	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
 	"github.com/brandopakel/gogifgenerator/internal/media"
+	"github.com/brandopakel/gogifgenerator/internal/modelgen"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
 	"github.com/brandopakel/gogifgenerator/internal/reference"
@@ -89,6 +90,89 @@ func TestGenerate(t *testing.T) {
 	}
 	if _, err := gif.DecodeAll(bytes.NewReader(response.Body.Bytes())); err != nil {
 		t.Fatalf("DecodeAll() error = %v", err)
+	}
+}
+
+func TestGenerateModelReturnsAndPersistsGLB(t *testing.T) {
+	glb := append([]byte("glTF"), make([]byte, 16)...)
+	generator := &recordingModelGenerator{result: modelgen.Result{
+		Data: glb, ContentType: "model/gltf-binary", Extension: "glb", Engine: "comfyui/tripo-3.1",
+	}}
+	saver := &recordingModelSaver{}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/models/generate", bytes.NewBufferString(`{"prompt":"a clockwork bird","recipe":"tripo-3.1","seed":42}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, ModelGenerator: generator, ModelSaver: saver}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "model/gltf-binary" {
+		t.Fatalf("status = %d; headers = %#v; body = %s", response.Code, response.Header(), response.Body.String())
+	}
+	if !bytes.Equal(response.Body.Bytes(), glb) || generator.request.Prompt != "a clockwork bird" || generator.request.Recipe != "tripo-3.1" {
+		t.Fatalf("response/request = %q / %#v", response.Body.Bytes(), generator.request)
+	}
+	if saver.generated.Engine != "comfyui/tripo-3.1" || response.Header().Get("Location") != "/api/v1/models/model_saved" {
+		t.Fatalf("saved = %#v; headers = %#v", saver.generated, response.Header())
+	}
+}
+
+func TestGenerateModelExplainsMissingWorkflow(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/models/generate", bytes.NewBufferString(`{"prompt":"a clockwork bird"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}}).ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "ComfyUI 3D workflow") {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestGeneratedModelServesOnlyModelLibraryContent(t *testing.T) {
+	reader := &recordingModelReader{data: append([]byte("glTF"), make([]byte, 16)...)}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/models/model_owned", nil)
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, ModelReader: reader}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "model/gltf-binary" || reader.id != "model_owned" {
+		t.Fatalf("status = %d; headers = %#v; id = %q", response.Code, response.Header(), reader.id)
+	}
+}
+
+func TestSemanticGenerationNeverFallsBackToAbstractShapes(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate", bytes.NewBufferString(`{
+      "prompt": "a hero swinging through the city",
+      "width": 128,
+      "height": 128,
+      "frames": 4,
+      "generation_mode": "semantic"
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}}).ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "Realistic AI generation is not configured") {
+		t.Fatalf("body = %s", response.Body.String())
+	}
+}
+
+func TestSemanticGenerationUsesSemanticImageGenerator(t *testing.T) {
+	generator := &recordingImageGenerator{}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate", bytes.NewBufferString(`{
+      "prompt": "a hero swinging through the city",
+      "width": 128,
+      "height": 128,
+      "frames": 4,
+      "generation_mode": "semantic"
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, ImageGenerator: generator}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if generator.request.Prompt != "a hero swinging through the city" {
+		t.Fatalf("Generate() request = %#v", generator.request)
+	}
+	if got := response.Header().Get("X-GoGIF-Engine"); got != "test-local+local" {
+		t.Fatalf("X-GoGIF-Engine = %q", got)
 	}
 }
 
@@ -490,9 +574,19 @@ type recordingGeneratedReader struct {
 	data []byte
 }
 
+type recordingModelReader struct {
+	id   string
+	data []byte
+}
+
 func (r *recordingGeneratedReader) OpenGenerated(_ context.Context, id string) (media.Asset, io.ReadCloser, error) {
 	r.id = id
 	return media.Asset{ID: id}, io.NopCloser(bytes.NewReader(r.data)), nil
+}
+
+func (r *recordingModelReader) OpenModel(_ context.Context, id string) (media.Asset, io.ReadCloser, error) {
+	r.id = id
+	return media.Asset{ID: id, Kind: media.KindModel}, io.NopCloser(bytes.NewReader(r.data)), nil
 }
 
 type recordingProvider struct {
@@ -520,6 +614,12 @@ type recordingImageGenerator struct {
 	request imagegen.Request
 }
 
+type recordingModelGenerator struct {
+	request modelgen.Request
+	result  modelgen.Result
+	err     error
+}
+
 type recordingCinematicRenderer struct {
 	request cinematic.Request
 }
@@ -545,12 +645,21 @@ func (d *recordingVideoDecoder) Decode(_ context.Context, request video.Request)
 }
 
 func (g *recordingImageGenerator) Descriptor() imagegen.Descriptor {
-	return imagegen.Descriptor{ID: "test-local", Label: "Test local", Local: true, SupportsReferences: true}
+	return imagegen.Descriptor{ID: "test-local", Label: "Test local", Local: true, Semantic: true, SupportsReferences: true}
 }
 
 func (g *recordingImageGenerator) Generate(_ context.Context, request imagegen.Request) (imagegen.Result, error) {
 	g.request = request
 	return imagegen.Result{Data: generatedTestPNG(nil), ContentType: "image/png", Engine: "test-local"}, nil
+}
+
+func (g *recordingModelGenerator) Descriptor() modelgen.Descriptor {
+	return modelgen.Descriptor{ID: "recording-3d", Label: "Recording 3D", Recipes: []modelgen.Recipe{{ID: "tripo-3.1", Label: "Tripo 3.1"}}}
+}
+
+func (g *recordingModelGenerator) Generate(_ context.Context, request modelgen.Request) (modelgen.Result, error) {
+	g.request = request
+	return g.result, g.err
 }
 
 func (r *recordingCinematicRenderer) Descriptor() cinematic.Descriptor {
@@ -602,4 +711,13 @@ func (p *recordingProvider) Search(_ context.Context, query provider.Query) (pro
 func (s *recordingSaver) SaveGenerated(_ context.Context, generated media.GeneratedAsset) (media.Asset, error) {
 	s.generated = generated
 	return media.Asset{ID: "gif_saved"}, nil
+}
+
+type recordingModelSaver struct {
+	generated media.GeneratedModel
+}
+
+func (s *recordingModelSaver) SaveModel(_ context.Context, generated media.GeneratedModel) (media.Asset, error) {
+	s.generated = generated
+	return media.Asset{ID: "model_saved", Kind: media.KindModel}, nil
 }

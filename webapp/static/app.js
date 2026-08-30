@@ -9,6 +9,7 @@ const elements = {
   previewShell: document.querySelector('#preview-shell'),
   preview: document.querySelector('#gif-preview'),
   videoPreview: document.querySelector('#video-preview'),
+	modelPreview: document.querySelector('#model-preview'),
   editorOverlay: document.querySelector('#editor-overlay'),
   captionGuide: document.querySelector('#caption-guide'),
   previewEmpty: document.querySelector('#preview-empty'),
@@ -18,6 +19,9 @@ const elements = {
   reroll: document.querySelector('#reroll-button'),
   copy: document.querySelector('#copy-button'),
   share: document.querySelector('#share-button'),
+  generationModeField: document.querySelector('#generation-mode-field'),
+  generationMode: document.querySelector('#generation-mode-control'),
+	generationControls: document.querySelector('#generation-controls'),
   presetField: document.querySelector('#preset-field'),
   preset: document.querySelector('#preset-control'),
   size: document.querySelector('#size-control'),
@@ -31,6 +35,8 @@ const elements = {
   searchSentinel: document.querySelector('#search-sentinel'),
   searchOptions: document.querySelector('#search-options'),
   searchScope: document.querySelector('#search-scope'),
+	modelOptions: document.querySelector('#model-options'),
+	modelRecipe: document.querySelector('#model-recipe'),
   install: document.querySelector('#install-button'),
   referenceChip: document.querySelector('#reference-chip'),
   referenceLabel: document.querySelector('#reference-label'),
@@ -62,7 +68,7 @@ const elements = {
 };
 
 const state = {
-  mode: 'create', config: null, objectURL: '', resultURL: '', uploadPreviewURL: '', resultBlob: null,
+  mode: 'create', config: null, objectURL: '', resultURL: '', uploadPreviewURL: '', resultBlob: null, resultKind: '',
   uploadFile: null, seed: 0, installPrompt: null, reference: null, uploadIsVideo: false,
   history: [], historyIndex: -1, applyingHistory: false, currentDraftID: '', drag: null,
   searchRequestID: 0, searchSession: null,
@@ -83,6 +89,18 @@ async function loadConfig() {
       elements.videoCapability.textContent = 'Video requires FFmpeg.';
       elements.videoCapability.hidden = false;
     }
+    const semanticOption = elements.generationMode.querySelector('option[value="semantic"]');
+    const semanticGenerator = state.config.image_generator?.semantic;
+    semanticOption.textContent = semanticGenerator
+      ? `Realistic AI · ${state.config.image_generator.label}`
+      : 'Realistic AI · setup required';
+	const recipes = state.config.model_generator?.recipes || [];
+	elements.modelRecipe.replaceChildren();
+	if (recipes.length) {
+	  for (const recipe of recipes) elements.modelRecipe.append(new Option(recipe.label, recipe.id));
+	} else {
+	  elements.modelRecipe.append(new Option('ComfyUI 3D · setup required', 'tripo-3.1'));
+	}
     updateSearchScope();
     if (state.mode === 'search') queueSearch();
   } catch {
@@ -91,7 +109,9 @@ async function loadConfig() {
 }
 
 function setMode(mode) {
+	const changingMediaType = (mode === 'model') !== (state.mode === 'model');
   state.mode = mode;
+	if (changingMediaType && state.resultBlob) clearResult(mode === 'edit');
   for (const button of elements.modes) {
     const active = button.dataset.mode === mode;
     button.classList.toggle('active', active);
@@ -99,22 +119,37 @@ function setMode(mode) {
   }
   const searching = mode === 'search';
   const editing = mode === 'edit';
+	const modeling = mode === 'model';
   elements.createPanel.hidden = searching;
   elements.searchPanel.hidden = !searching;
   elements.searchOptions.hidden = !searching;
+	elements.modelOptions.hidden = !modeling;
   elements.uploadEditor.hidden = !editing;
   elements.editControls.hidden = !editing;
-  elements.referenceChip.hidden = editing || !state.reference;
+	elements.referenceChip.hidden = editing || modeling || !state.reference;
   elements.prompt.required = !editing;
-  elements.submitLabel.textContent = editing ? 'Export GIF' : searching ? 'Find it' : 'Make it';
-  elements.submit.setAttribute('aria-label', editing ? 'Export edited GIF' : searching ? 'Search GIFs' : 'Create GIF');
-  elements.prompt.placeholder = editing ? 'Add a caption (optional)…' : searching ? 'Search GIFs or clips…' : 'Describe a GIF…';
+	elements.submitLabel.textContent = editing ? 'Export GIF' : searching ? 'Find it' : modeling ? 'Build 3D' : 'Make it';
+	elements.submit.setAttribute('aria-label', editing ? 'Export edited GIF' : searching ? 'Search GIFs' : modeling ? 'Create 3D model' : 'Create GIF');
+	elements.prompt.placeholder = editing ? 'Add a caption (optional)…' : searching ? 'Search GIFs or clips…' : modeling ? 'Describe a 3D model…' : 'Describe a GIF…';
   elements.reroll.textContent = editing ? 'Re-export' : 'Reroll';
   elements.presetField.hidden = !editing;
   elements.targetSizeField.hidden = !editing;
-  elements.prompt.maxLength = editing ? 42 : 500;
+	elements.generationModeField.hidden = editing || modeling;
+	elements.generationControls.hidden = modeling;
+	elements.prompt.maxLength = editing ? 42 : modeling ? 1024 : 500;
   elements.previewShell.classList.toggle('editing', editing && Boolean(state.uploadFile) && !state.resultBlob);
   elements.editorOverlay.hidden = !(editing && state.uploadFile && !state.resultBlob);
+	if (modeling && !state.resultBlob) {
+	  elements.preview.hidden = true;
+	  elements.videoPreview.hidden = true;
+	  elements.modelPreview.hidden = true;
+	  elements.previewEmpty.hidden = false;
+	} else if (editing && state.uploadFile && !state.resultBlob) {
+	  elements.preview.src = state.uploadIsVideo ? '' : state.uploadPreviewURL;
+	  elements.preview.hidden = state.uploadIsVideo;
+	  elements.videoPreview.hidden = !state.uploadIsVideo;
+	  elements.previewEmpty.hidden = true;
+	}
   if (editing && state.history.length === 0) recordEditorState();
   if (searching) queueSearch();
   else {
@@ -132,11 +167,39 @@ async function submitPrompt(event) {
   const prompt = elements.prompt.value.trim();
   if (state.mode === 'edit') {
     await exportUpload(prompt);
+	} else if (prompt && state.mode === 'model') {
+	  await generateModel(prompt);
   } else if (prompt && state.mode === 'create') {
     await generate(prompt);
   } else if (prompt) {
     await search(prompt);
   }
+}
+
+async function generateModel(prompt, reroll = false) {
+	setWorking(true, 'Building the 3D asset…');
+	if (reroll) state.seed = Date.now();
+	try {
+	  const response = await fetch('/api/v1/models/generate', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ prompt, recipe: elements.modelRecipe.value, seed: state.seed }),
+	  });
+	  if (!response.ok) {
+		const problem = await response.json().catch(() => ({}));
+		throw new Error(problem.error?.message || `3D generation failed (${response.status})`);
+	  }
+	  const resultURL = response.headers.get('Location');
+	  const blob = await response.blob();
+	  presentModelResult(blob, resultURL);
+	  elements.resultTitle.textContent = prompt.length > 48 ? `${prompt.slice(0, 48)}…` : prompt;
+	  elements.reroll.disabled = false;
+	  scrollToElement(elements.createPanel);
+	} catch (error) {
+	  showToast(error.message);
+	} finally {
+	  setWorking(false);
+	}
 }
 
 async function generate(prompt, reroll = false) {
@@ -151,6 +214,7 @@ async function generate(prompt, reroll = false) {
       frames: Number(elements.quality.value),
       delay_ms: Number(elements.tempo.value),
       seed: state.seed,
+      generation_mode: elements.generationMode.value,
     };
     let endpoint = '/api/v1/gifs/generate';
     if (state.reference) {
@@ -199,6 +263,8 @@ function loadUploadFile(file, keepSettings = false) {
   state.currentDraftID = '';
   if (state.uploadPreviewURL) URL.revokeObjectURL(state.uploadPreviewURL);
   state.uploadPreviewURL = URL.createObjectURL(file);
+	elements.modelPreview.hidden = true;
+	elements.modelPreview.removeAttribute('src');
   elements.preview.hidden = state.uploadIsVideo;
   elements.videoPreview.hidden = !state.uploadIsVideo;
   if (state.uploadIsVideo) {
@@ -282,6 +348,7 @@ async function exportUpload(caption) {
 function presentResult(blob, resultURL = '') {
   if (state.objectURL) URL.revokeObjectURL(state.objectURL);
   state.resultBlob = blob;
+	state.resultKind = 'gif';
   state.resultURL = resultURL ? new URL(resultURL, window.location.origin).href : '';
   state.objectURL = URL.createObjectURL(blob);
   elements.preview.src = state.objectURL;
@@ -289,16 +356,44 @@ function presentResult(blob, resultURL = '') {
   elements.preview.style.transform = '';
   elements.videoPreview.hidden = true;
   elements.videoPreview.pause();
+	elements.modelPreview.hidden = true;
+	elements.modelPreview.removeAttribute('src');
   elements.editorOverlay.hidden = true;
   elements.previewShell.classList.remove('editing', 'dragging');
   elements.previewShell.classList.add('has-result');
   elements.preview.setAttribute('aria-label', 'Generated GIF. On iPhone, touch and hold to copy or save it.');
   elements.previewEmpty.hidden = true;
   elements.download.href = state.objectURL;
+	elements.download.download = 'gogif.gif';
+	elements.download.textContent = 'Download GIF';
   elements.download.classList.remove('disabled');
   elements.download.setAttribute('aria-disabled', 'false');
   elements.share.disabled = false;
   elements.copy.disabled = false;
+}
+
+function presentModelResult(blob, resultURL = '') {
+	if (state.objectURL) URL.revokeObjectURL(state.objectURL);
+	state.resultBlob = blob;
+	state.resultKind = 'model';
+	state.resultURL = resultURL ? new URL(resultURL, window.location.origin).href : '';
+	state.objectURL = URL.createObjectURL(blob);
+	elements.preview.hidden = true;
+	elements.videoPreview.hidden = true;
+	elements.videoPreview.pause();
+	elements.modelPreview.src = state.objectURL;
+	elements.modelPreview.hidden = false;
+	elements.editorOverlay.hidden = true;
+	elements.previewShell.classList.remove('editing', 'dragging');
+	elements.previewShell.classList.add('has-result');
+	elements.previewEmpty.hidden = true;
+	elements.download.href = state.objectURL;
+	elements.download.download = 'gogif-model.glb';
+	elements.download.textContent = 'Save .GLB';
+	elements.download.classList.remove('disabled');
+	elements.download.setAttribute('aria-disabled', 'false');
+	elements.share.disabled = false;
+	elements.copy.disabled = false;
 }
 
 function clearResult(restoreUpload = true) {
@@ -306,9 +401,14 @@ function clearResult(restoreUpload = true) {
   state.objectURL = '';
   state.resultURL = '';
   state.resultBlob = null;
+	state.resultKind = '';
+	elements.modelPreview.hidden = true;
+	elements.modelPreview.removeAttribute('src');
   elements.previewShell.classList.remove('has-result');
   elements.preview.setAttribute('aria-label', 'GIF preview');
   elements.download.removeAttribute('href');
+	elements.download.download = 'gogif.gif';
+	elements.download.textContent = 'Download GIF';
   elements.download.classList.add('disabled');
   elements.download.setAttribute('aria-disabled', 'true');
   elements.share.disabled = true;
@@ -321,12 +421,20 @@ function clearResult(restoreUpload = true) {
     elements.editorOverlay.hidden = false;
     elements.previewShell.classList.add('editing');
     updateEditorVisuals();
+	} else {
+	  elements.preview.hidden = true;
+	  elements.videoPreview.hidden = true;
+	  elements.previewEmpty.hidden = false;
+	  elements.resultTitle.textContent = 'Ready when you are';
   }
 }
 
 async function shareResult() {
   if (!state.resultBlob) return;
-  const file = new File([state.resultBlob], 'gogif.gif', { type: 'image/gif' });
+	const isModel = state.resultKind === 'model';
+	const filename = isModel ? 'gogif-model.glb' : 'gogif.gif';
+	const contentType = isModel ? 'model/gltf-binary' : 'image/gif';
+	const file = new File([state.resultBlob], filename, { type: contentType });
   const shareData = { files: [file], title: 'GoGIF', text: elements.resultTitle.textContent };
   if (navigator.share && (!navigator.canShare || navigator.canShare(shareData))) {
     try {
@@ -336,23 +444,26 @@ async function shareResult() {
       if (error.name === 'AbortError') return;
     }
   }
-  if (await copyResultLink()) showToast('This browser cannot open file sharing, so a shareable GIF link was copied.');
-  else showToast('File sharing is unavailable here. Download the GIF instead.');
+	if (await copyResultLink()) showToast(`This browser cannot share the ${isModel ? 'GLB file' : 'GIF'}, so its link was copied.`);
+	else showToast(`File sharing is unavailable here. Save the ${isModel ? 'GLB' : 'GIF'} instead.`);
 }
 
 async function copyResult() {
   if (!state.resultBlob) return;
+	const isModel = state.resultKind === 'model';
+	const contentType = isModel ? 'model/gltf-binary' : 'image/gif';
   if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
     try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/gif': state.resultBlob })]);
-      showToast('GIF copied to the clipboard.');
+		if (ClipboardItem.supports && !ClipboardItem.supports(contentType)) throw new Error('unsupported clipboard type');
+		await navigator.clipboard.write([new ClipboardItem({ [contentType]: state.resultBlob })]);
+		showToast(`${isModel ? '3D model' : 'GIF'} copied to the clipboard.`);
       return;
     } catch {
       // Most desktop browsers reject animated GIF clipboard items. Fall back to its hosted URL.
     }
   }
-  if (await copyResultLink()) showToast('This browser cannot copy animated GIF data, so its GIF link was copied.');
-  else showToast('This browser cannot copy the GIF. Download it instead.');
+	if (await copyResultLink()) showToast(`This browser cannot copy ${isModel ? 'GLB' : 'animated GIF'} data, so its link was copied.`);
+	else showToast(`This browser cannot copy the ${isModel ? '3D model' : 'GIF'}. Save it instead.`);
 }
 
 async function copyResultLink() {
@@ -1100,9 +1211,11 @@ function clearReference() {
 	elements.referenceLabel.textContent = '';
 }
 
-function setWorking(working) {
+function setWorking(working, message = 'Directing the pixels…') {
   elements.submit.disabled = working;
   elements.working.hidden = !working;
+	const status = elements.working.querySelector('p');
+	if (status) status.textContent = message;
 }
 
 let toastTimer;
@@ -1157,6 +1270,7 @@ elements.trimStart.addEventListener('change', () => {
 });
 elements.reroll.addEventListener('click', () => {
   if (state.mode === 'edit') exportUpload(elements.prompt.value.trim());
+	else if (state.mode === 'model') generateModel(elements.prompt.value.trim(), true);
   else generate(elements.prompt.value.trim(), true);
 });
 elements.prompt.addEventListener('input', () => {

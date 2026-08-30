@@ -23,6 +23,7 @@ func TestGenerateQueuesWorkflowFetchesOutputAndCleansReference(t *testing.T) {
 	inputDirectory := t.TempDir()
 	var queuedWorkflow map[string]any
 	var uploadedPath string
+	memoryReleased := false
 	outputPNG := encodedPNG(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -69,6 +70,9 @@ func TestGenerateQueuesWorkflowFetchesOutputAndCleansReference(t *testing.T) {
 			_, _ = w.Write(outputPNG)
 		case r.Method == http.MethodGet && r.URL.Path == "/system_stats":
 			_, _ = w.Write([]byte(`{"devices":[]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/free":
+			memoryReleased = true
+			w.WriteHeader(http.StatusOK)
 		default:
 			http.NotFound(w, r)
 		}
@@ -97,6 +101,9 @@ func TestGenerateQueuesWorkflowFetchesOutputAndCleansReference(t *testing.T) {
 	}
 	if queuedWorkflow["10"] == nil || queuedWorkflow["12"] == nil {
 		t.Fatalf("workflow does not contain reference-image nodes: %#v", queuedWorkflow)
+	}
+	if !memoryReleased {
+		t.Fatal("ComfyUI model memory was not released before downstream rendering")
 	}
 	if _, err := os.Stat(uploadedPath); !os.IsNotExist(err) {
 		t.Fatalf("temporary ComfyUI input still exists: %v", err)

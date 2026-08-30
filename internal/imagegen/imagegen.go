@@ -63,6 +63,7 @@ type Descriptor struct {
 	ID                 string `json:"id"`
 	Label              string `json:"label"`
 	Local              bool   `json:"local"`
+	Semantic           bool   `json:"semantic"`
 	SupportsReferences bool   `json:"supports_references"`
 }
 

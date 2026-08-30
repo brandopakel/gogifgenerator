@@ -133,6 +133,24 @@ func TestCompositeSequencesPreservesReferenceAndUnrealBeauty(t *testing.T) {
 	}
 }
 
+func TestAnimateReferenceCreatesMotionWithoutDiscardingSource(t *testing.T) {
+	reference := image.NewNRGBA(image.Rect(0, 0, 64, 64))
+	for y := range 64 {
+		for x := range 64 {
+			reference.SetNRGBA(x, y, color.NRGBA{R: uint8(x * 4), G: uint8(y * 4), B: 80, A: 255})
+		}
+	}
+	first := animateReference(reference, 64, 64, 0, 8, "waves")
+	second := animateReference(reference, 64, 64, 2, 8, "waves")
+	if first.At(32, 32) == second.At(32, 32) {
+		t.Fatal("animated reference frames are identical at the focal point")
+	}
+	_, _, _, alpha := second.At(32, 32).RGBA()
+	if alpha == 0 {
+		t.Fatal("animated reference discarded the semantic source")
+	}
+}
+
 func TestNewRejectsDuplicateStageIDs(t *testing.T) {
 	stage := fakeStage{descriptor: StageDescriptor{ID: "same", Label: "Same", Role: "test"}}
 	if _, err := New(PipelineOptions{Stages: []Stage{stage, stage}, Encoder: fakeEncoder{}}); err == nil {

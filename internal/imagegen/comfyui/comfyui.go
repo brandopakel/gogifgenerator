@@ -127,6 +127,7 @@ func (g *Generator) Descriptor() imagegen.Descriptor {
 		ID:                 "comfyui-local",
 		Label:              "ComfyUI (local)",
 		Local:              true,
+		Semantic:           true,
 		SupportsReferences: g.inputDirectory != "",
 	}
 }
@@ -186,6 +187,10 @@ func (g *Generator) Generate(ctx context.Context, request imagegen.Request) (ima
 	if err != nil {
 		return imagegen.Result{}, err
 	}
+	// The cinematic pipeline launches Blender, Unity, and Unreal after this
+	// method returns. Release model weights first so small unified-memory Macs
+	// do not keep diffusion and 3D engines resident at the same time.
+	g.releaseMemory()
 	configuration, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || configuration.Width != request.Width || configuration.Height != request.Height {
 		return imagegen.Result{}, errors.New("comfyui: output is not a decodable image with the requested dimensions")
@@ -195,6 +200,23 @@ func (g *Generator) Generate(ctx context.Context, request imagegen.Request) (ima
 	}
 	cleanup = func() error { return nil }
 	return imagegen.Result{Data: data, ContentType: contentType, Engine: g.Descriptor().ID}, nil
+}
+
+func (g *Generator) releaseMemory() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	body := bytes.NewBufferString(`{"unload_models":true,"free_memory":true}`)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, g.route("/free"), body)
+	if err != nil {
+		return
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := g.client.Do(request)
+	if err != nil {
+		return
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
 }
 
 func (g *Generator) workflow(request imagegen.Request, inputName string) map[string]any {
@@ -212,7 +234,7 @@ func (g *Generator) workflow(request imagegen.Request, inputName string) map[str
 		},
 		"4": map[string]any{"class_type": "CheckpointLoaderSimple", "inputs": map[string]any{"ckpt_name": g.checkpoint}},
 		"5": map[string]any{"class_type": "EmptyLatentImage", "inputs": map[string]any{"batch_size": 1, "height": request.Height, "width": request.Width}},
-		"6": map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"clip": []any{"4", 1}, "text": request.Prompt}},
+		"6": map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"clip": []any{"4", 1}, "text": imagegen.CinematicPrompt(request.Prompt, request.Width, request.Height)}},
 		"7": map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"clip": []any{"4", 1}, "text": g.negativePrompt}},
 		"8": map[string]any{"class_type": "VAEDecode", "inputs": map[string]any{"samples": []any{"3", 0}, "vae": []any{"4", 2}}},
 		"9": map[string]any{"class_type": "PreviewImage", "inputs": map[string]any{"images": []any{"8", 0}}},

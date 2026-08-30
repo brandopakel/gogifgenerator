@@ -2,6 +2,8 @@
 
 GoGIF has three no-key creation paths. The built-in Go renderer is instant and dependency-free. Blender produces original procedural 3D art. ComfyUI runs a diffusion checkpoint locally and can transform one rights-approved Wikimedia image.
 
+It also has a separately opt-in hosted semantic path using OpenAI's Image API. Both semantic adapters implement the same `internal/imagegen` contract, so the downstream cinematic pipeline does not depend on a particular model vendor.
+
 A fourth, explicitly enabled cinematic path coordinates Blender, Unity 6.3, Unreal Engine 5, and FFmpeg. It has no hosted API dependency, but the editor installations are large and have their own activation, licensing, and hardware requirements. See [Cinematic pipeline](CINEMATIC_PIPELINE.md).
 
 Local software does not create a vendor bill, but it still uses your disk, bandwidth, CPU/GPU, and electricity. Every downloaded checkpoint has its own license; “free to download” does not automatically mean unrestricted commercial use.
@@ -41,6 +43,44 @@ The directory must exist and belong to the same machine/filesystem as the GoGIF 
 The initial workflow uses standard checkpoint, CLIP, VAE, and KSampler nodes. A checkpoint that requires a custom graph or custom nodes needs its own audited workflow adapter.
 
 The verified starter checkpoint is [Comfy-Org's Stable Diffusion 1.5 FP16 archive](https://huggingface.co/Comfy-Org/stable-diffusion-v1-5-archive). It is an older 2.13 GB model under the CreativeML Open RAIL-M license, chosen as a small compatibility baseline—not as the eventual production-quality model. Read its model card and license before shipping generated outputs.
+
+The current M3 test Mac has only 8 GB of unified memory. ComfyUI's documented FLUX.2 Klein 4B distilled workflow cites roughly 8.4 GB of GPU memory before the operating system, GoGIF, Unity, or Unreal are counted, so that model is not a safe local target on this machine. Use a smaller compatibility checkpoint locally, a better-equipped GPU worker, or the hosted adapter for production-quality reference art.
+
+## OpenAI semantic imagery
+
+GoGIF uses the single-image Image API for prompt-only source art and its image-edit endpoint when controlled reference bytes are present. The API key is read only by the Go process and is omitted from `/api/v1/config`.
+
+```sh
+export OPENAI_API_KEY="your-project-key"
+export GOGIF_ENABLE_PAID_IMAGE_GENERATION=true
+export GOGIF_OPENAI_IMAGE_MODEL=gpt-image-2
+export GOGIF_OPENAI_IMAGE_QUALITY=high
+make run
+```
+
+The model supports larger source resolutions than many GIF canvases. GoGIF generates at a supported square/portrait/landscape size, decodes and bounds the response, center-crops it to the requested aspect ratio, and resamples it to the exact output dimensions before any engine receives it. Hosted generation can incur charges and is never enabled merely because an API key happens to be present. See [OpenAI's image generation guide](https://developers.openai.com/api/docs/guides/image-generation).
+
+## ComfyUI 3D workflows
+
+The **3D** tab is a separate output pipeline. It runs an allowlisted ComfyUI recipe, validates the returned binary glTF signature and 256 MiB size bound, stores the GLB as `media.KindModel`, and returns a managed model URL. The browser uses `<model-viewer>` for camera control and auto-rotation. Save `.glb` always works; file share and direct binary clipboard copy depend on the browser, with a managed-URL clipboard fallback.
+
+Two prompt recipes are currently registered:
+
+- `tripo-3.1`: detailed geometry and PBR textures; the preferred default.
+- `hunyuan-3.1`: Hunyuan 3D 3.1 normal mesh with PBR textures.
+
+Both are paid Comfy Partner Nodes. A Comfy account key, credits, and an explicit spend opt-in are required even when Comfy Desktop performs the orchestration locally:
+
+```sh
+export COMFY_CLOUD_API_KEY="your-comfy-account-key"
+export GOGIF_ENABLE_PAID_MODEL_GENERATION=true
+export GOGIF_MODEL_GENERATOR=comfyui
+export GOGIF_COMFYUI_MODEL_URL=http://127.0.0.1:8188
+export GOGIF_COMFYUI_MODEL_RECIPE=tripo-3.1
+make run
+```
+
+For hosted execution, use `GOGIF_COMFYUI_MODEL_URL=https://cloud.comfy.org/api`. Remote endpoints must use HTTPS and a key; output redirects are followed without forwarding that key to object storage. Comfy's official workflows also include image-to-model and multiview-to-model. Those belong in later audited recipes once the upload lifecycle and job-progress UI are extended to 3D inputs.
 
 ## Using the Windows PC over Tailscale
 

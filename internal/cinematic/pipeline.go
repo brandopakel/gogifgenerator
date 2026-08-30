@@ -249,7 +249,8 @@ func compositeSequences(manifest Manifest) error {
 		if reference == nil {
 			draw.Draw(composite, composite.Bounds(), beauty, beauty.Bounds().Min, draw.Src)
 		} else {
-			draw.Draw(composite, composite.Bounds(), reference, reference.Bounds().Min, draw.Src)
+			animatedReference := animateReference(reference, manifest.Width, manifest.Height, index, manifest.Frames, manifest.Motion)
+			draw.Draw(composite, composite.Bounds(), animatedReference, animatedReference.Bounds().Min, draw.Src)
 			draw.DrawMask(composite, composite.Bounds(), beauty, beauty.Bounds().Min, image.NewUniform(color.Alpha{A: 96}), image.Point{}, draw.Over)
 		}
 		draw.Draw(composite, composite.Bounds(), overlay, overlay.Bounds().Min, draw.Over)
@@ -268,6 +269,41 @@ func compositeSequences(manifest Manifest) error {
 		}
 	}
 	return nil
+}
+
+// animateReference gives semantic source art a restrained 2.5D camera move.
+// The image model owns the recognizable subject and action; this transform
+// prevents the keyframe from becoming a static background while Unity and
+// Unreal add transparent VFX and beauty detail above it.
+func animateReference(reference image.Image, width, height, index, frames int, motion string) image.Image {
+	phase := float64(index) / float64(max(1, frames))
+	angle := phase * 2 * math.Pi
+	zoom, shiftX, shiftY := 1.08, 0.0, 0.0
+	switch motion {
+	case "orbit":
+		shiftX, shiftY = 0.028*math.Cos(angle), 0.028*math.Sin(angle)
+	case "pulse":
+		zoom += 0.035 * (0.5 + 0.5*math.Sin(angle))
+	case "waves":
+		shiftX = 0.045 * math.Sin(angle)
+		shiftY = 0.01 * math.Sin(2*angle)
+	case "confetti":
+		shiftY = 0.035 * math.Sin(angle)
+		zoom += 0.015 * (0.5 + 0.5*math.Cos(angle))
+	default:
+		zoom += 0.02 * phase
+	}
+	cropWidth := max(1, int(math.Round(float64(width)/zoom)))
+	cropHeight := max(1, int(math.Round(float64(height)/zoom)))
+	centerX := width/2 + int(math.Round(shiftX*float64(width)))
+	centerY := height/2 + int(math.Round(shiftY*float64(height)))
+	minimumX, minimumY := centerX-cropWidth/2, centerY-cropHeight/2
+	minimumX = min(max(0, minimumX), width-cropWidth)
+	minimumY = min(max(0, minimumY), height-cropHeight)
+	crop := image.Rect(minimumX, minimumY, minimumX+cropWidth, minimumY+cropHeight)
+	frame := image.NewNRGBA(image.Rect(0, 0, width, height))
+	xdraw.CatmullRom.Scale(frame, frame.Bounds(), reference, crop, xdraw.Src, nil)
+	return frame
 }
 
 func decodeFrame(path string, width, height int) (image.Image, error) {

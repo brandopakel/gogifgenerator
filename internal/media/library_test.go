@@ -106,3 +106,39 @@ func TestLibraryPreservesTemporaryReferenceProvenance(t *testing.T) {
 		t.Fatalf("rights = %#v", asset.Rights)
 	}
 }
+
+func TestLibrarySavesAndOpensGeneratedGLB(t *testing.T) {
+	ctx := context.Background()
+	repository := NewRepository(store.NewMemoryKV())
+	blobs, err := store.NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	library := NewLibrary(repository, blobs)
+	library.newModelID = func() (string, error) { return "model_generated", nil }
+	glb := append([]byte("glTF"), make([]byte, 16)...)
+
+	asset, err := library.SaveModel(ctx, GeneratedModel{Prompt: "clockwork bird", Engine: "comfyui/tripo-3.1", Data: glb})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asset.ID != "model_generated" || asset.Kind != KindModel || asset.Renditions[0].ContentType != "model/gltf-binary" {
+		t.Fatalf("SaveModel() = %#v", asset)
+	}
+	opened, reader, err := library.OpenModel(ctx, asset.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(reader)
+	_ = reader.Close()
+	if err != nil || opened.ID != asset.ID || string(data) != string(glb) {
+		t.Fatalf("OpenModel() = %#v, %q, %v", opened, data, err)
+	}
+
+	if _, err := library.SaveModel(ctx, GeneratedModel{Data: []byte("not glb")}); err == nil {
+		t.Fatal("SaveModel() accepted invalid bytes")
+	}
+	if _, _, err := library.OpenGenerated(ctx, asset.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("OpenGenerated(model) error = %v", err)
+	}
+}

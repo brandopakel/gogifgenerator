@@ -3,7 +3,7 @@
 GoGIF now has a concrete multi-engine contract:
 
 ```text
-optional ComfyUI/licensed reference image
+GPT Image 2 / ComfyUI / licensed reference image
               ↓
 Blender 5.x ── textured FBX asset + preview
               ↓
@@ -11,7 +11,7 @@ Unity 6.3 ─── portable motion.json + transparent VFX PNGs
               ↓
 Unreal 5 ──── cinematic beauty PNGs using FBX + motion.json
               ↓
-Go ────────── preserve semantic reference + blend Unreal/Unity passes
+Go ────────── animate/preserve semantic reference + blend Unreal/Unity passes
               ↓
 FFmpeg ────── per-animation palette + looping GIF
 ```
@@ -22,7 +22,7 @@ Unity and Unreal are not interchangeable renderers in this design. Unity owns po
 
 The Go orchestrator, strict job manifest, Blender FBX stage, Unity batch project/script, Unreal tick-driven batch project/script, compositor, FFmpeg encoder, API capability reporting, fallback behavior, and contract tests are implemented.
 
-The current Mac has Blender 5.2 LTS, FFmpeg 9, Unity 6000.3.23f1, Unreal Engine 5.8.2, Xcode 26.1.1, and Apple's Metal toolchain installed. Unity Personal is activated. Unity produced a validated transparent PNG/motion sequence; Unreal imported the Blender FBX and produced a validated square PNG sequence; and an API request completed the full Blender → Unity → Unreal → FFmpeg path. A second request using a rights-approved temporary Wikimedia reference returned `reference+blender+unity-6.3+unreal-5+ffmpeg+local` and visually retained the semantic image.
+The current Mac has Blender 5.2 LTS, FFmpeg 9, Unity 6000.3.23f1, Unreal Engine 5.8.2, Xcode 26.1.1, Apple's Metal toolchain, and Comfy Desktop installed. Unity Personal is activated. Unity produced a validated transparent PNG/motion sequence; Unreal imported the Blender FBX and produced a validated square PNG sequence; and an API request completed the full Blender → Unity → Unreal → FFmpeg path. A second request using a rights-approved temporary Wikimedia reference returned `reference+blender+unity-6.3+unreal-5+ffmpeg+local` and visually retained the semantic image.
 
 This Mac has 8 GB of memory. Unreal's macOS requirements list 16 GB as the minimum and 32 GB as recommended, so it is suitable for functional testing but not representative production rendering. The cinematic pipeline remains opt-in and serialized.
 
@@ -71,7 +71,7 @@ make run
 
 Replace versioned editor paths with the versions actually installed. On Windows, point the executable variables at `Unity.exe`, `UnrealEditor-Cmd.exe`, and `ffmpeg.exe`.
 
-For AI-generated reference art, configure the existing local ComfyUI adapter as well. When the cinematic pipeline is enabled, a non-Blender still generator becomes its reference-imagery stage:
+For AI-generated reference art, configure local ComfyUI or the hosted adapter. When the cinematic pipeline is enabled, a semantic still generator becomes its reference-imagery stage:
 
 ```sh
 export GOGIF_IMAGE_GENERATOR=comfyui
@@ -79,7 +79,17 @@ export GOGIF_COMFYUI_URL=http://127.0.0.1:8188
 export GOGIF_COMFYUI_CHECKPOINT=your-checkpoint.safetensors
 ```
 
-Without ComfyUI, Blender still creates a deterministic prompt-seeded scene; adding Unity and Unreal does not make that procedural geometry understand named subjects. A rights-approved selected provider image can become the temporary reference input. GoGIF carries that normalized image through textured Blender geometry and also keeps it as the compositor base, then blends the validated Unreal beauty and Unity VFX passes above it. This prevents FBX material-import differences from silently erasing the semantic subject.
+or:
+
+```sh
+export OPENAI_API_KEY=your-project-key
+export GOGIF_ENABLE_PAID_IMAGE_GENERATION=true
+export GOGIF_IMAGE_GENERATOR=openai
+export GOGIF_OPENAI_IMAGE_MODEL=gpt-image-2
+export GOGIF_OPENAI_IMAGE_QUALITY=high
+```
+
+Without a semantic generator, Blender still creates a deterministic prompt-seeded scene; adding Unity and Unreal does not make that procedural geometry understand named subjects. A rights-approved selected provider image can become the temporary reference input. GoGIF carries that normalized image through textured Blender geometry and keeps it as an animated 2.5D compositor base, then blends the validated Unreal beauty and Unity VFX passes above it. This prevents FBX material-import differences from silently erasing the subject while adding restrained camera movement to a generated keyframe.
 
 ## Operational guarantees
 
@@ -89,14 +99,15 @@ Without ComfyUI, Blender still creates a deterministic prompt-seeded scene; addi
 - Local cinematic jobs are serialized because Unity cannot safely open the same project from two editor processes at once; a canceled request can stop while waiting for the engine slot.
 - All reference bytes, FBX files, motion data, frame sequences, logs, and intermediate GIFs live in a request-scoped temporary directory.
 - PNG dimensions and counts are checked after Unity and Unreal; FBX, motion JSON, PNG, and GIF sizes are bounded. Unreal receives the manifest dimensions as its render viewport and its latent screenshot tasks yield between editor ticks.
-- A failed standard creation falls back to the existing local still/Go renderer. It never labels that fallback as Unity or Unreal output.
+- A failed **Fast local** creation can fall back to the existing still/Go renderer. It never labels that fallback as Unity or Unreal output.
+- A **Realistic AI** request is fail-closed. A missing or failed semantic generator returns a clear 503/502 response and never disguises procedural shapes as a subject-aware result.
 - Provider-reference generation remains fail-closed when no configured path can safely transform the reference.
 
 ## Next quality work after editor installation
 
 1. Run the checked-in Unity and Unreal projects on the NVIDIA Windows machine; macOS functional validation is complete.
 2. Replace Unreal's starter high-resolution screenshot pass with a project-owned Movie Render Queue preset or Python executor for temporal samples, anti-aliasing, motion blur, and EXR output.
-3. Configure and evaluate a current semantic ComfyUI checkpoint (or another explicit image generator) before calling prompt-only output realistic; the current fallback scene geometry is procedural.
+3. Complete Comfy Desktop's one-time MPS initialization and evaluate a small local checkpoint; use GPT Image 2 or a better-equipped GPU worker for high-quality prompt-only testing on this 8-GB Mac.
 4. Add character rig and animation interchange, likely FBX animation clips or Alembic where both engine projects can reproduce it.
 5. Measure end-to-end p50/p95 time, peak RAM/VRAM, failure rate, and visual scores before making the pipeline the default.
 6. Add MP4/WebM output beside GIF so high-detail renders are not forced through a 256-color final format.

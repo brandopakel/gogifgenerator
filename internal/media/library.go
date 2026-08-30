@@ -14,7 +14,10 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/store"
 )
 
-const maxGeneratedAssetBytes = 64 << 20
+const (
+	maxGeneratedAssetBytes = 64 << 20
+	maxGeneratedModelBytes = 256 << 20
+)
 
 type GeneratedAsset struct {
 	Prompt string
@@ -47,12 +50,27 @@ type GeneratedReader interface {
 	OpenGenerated(context.Context, string) (Asset, io.ReadCloser, error)
 }
 
+type GeneratedModel struct {
+	Prompt string
+	Engine string
+	Data   []byte
+}
+
+type ModelSaver interface {
+	SaveModel(context.Context, GeneratedModel) (Asset, error)
+}
+
+type ModelReader interface {
+	OpenModel(context.Context, string) (Asset, io.ReadCloser, error)
+}
+
 // Library coordinates immutable blobs with their searchable catalog records.
 type Library struct {
 	repository *Repository
 	blobs      store.BlobStore
 	now        func() time.Time
 	newID      func() (string, error)
+	newModelID func() (string, error)
 }
 
 func NewLibrary(repository *Repository, blobs store.BlobStore) *Library {
@@ -61,7 +79,42 @@ func NewLibrary(repository *Repository, blobs store.BlobStore) *Library {
 		blobs:      blobs,
 		now:        time.Now,
 		newID:      newAssetID,
+		newModelID: newModelAssetID,
 	}
+}
+
+func (l *Library) SaveModel(ctx context.Context, generated GeneratedModel) (Asset, error) {
+	if len(generated.Data) < 12 || string(generated.Data[:4]) != "glTF" {
+		return Asset{}, errors.New("generated model is not a binary glTF file")
+	}
+	if len(generated.Data) > maxGeneratedModelBytes {
+		return Asset{}, errors.New("generated model is too large")
+	}
+	id, err := l.newModelID()
+	if err != nil {
+		return Asset{}, fmt.Errorf("create model asset ID: %w", err)
+	}
+	blob, err := l.blobs.Put(ctx, bytes.NewReader(generated.Data), store.PutBlobOptions{MaxBytes: maxGeneratedModelBytes})
+	if err != nil {
+		return Asset{}, fmt.Errorf("store generated model: %w", err)
+	}
+	now := l.now().UTC()
+	asset := Asset{
+		ID: id, Kind: KindModel, State: StateReady, Title: generated.Prompt, Prompt: generated.Prompt,
+		CreatedAt: now, UpdatedAt: now,
+		Provenance:  Provenance{Provider: "gogif", ExternalID: id, Generator: generated.Engine, ImportedAt: &now, VerifiedAt: &now},
+		Rights:      Rights{Status: "generated-unreviewed", CommercialUse: PermissionUnknown, Derivatives: PermissionUnknown},
+		Moderation:  Moderation{Status: "unreviewed"},
+		Fingerprint: &Fingerprint{SHA256: blob.Digest},
+		Renditions: []Rendition{{
+			Name: "original", Format: "glb", ContentType: "model/gltf-binary", Storage: StorageManaged,
+			BlobKey: blob.Key, SizeBytes: blob.Size,
+		}},
+	}
+	if err := l.repository.Put(ctx, asset); err != nil {
+		return Asset{}, fmt.Errorf("catalog generated model: %w", err)
+	}
+	return asset, nil
 }
 
 func (l *Library) SaveGenerated(ctx context.Context, generated GeneratedAsset) (Asset, error) {
@@ -167,10 +220,43 @@ func (l *Library) OpenGenerated(ctx context.Context, id string) (Asset, io.ReadC
 	return Asset{}, nil, store.ErrNotFound
 }
 
+func (l *Library) OpenModel(ctx context.Context, id string) (Asset, io.ReadCloser, error) {
+	asset, err := l.repository.Get(ctx, id)
+	if err != nil {
+		return Asset{}, nil, err
+	}
+	if asset.State != StateReady || asset.Kind != KindModel || asset.Provenance.Provider != "gogif" {
+		return Asset{}, nil, store.ErrNotFound
+	}
+	for _, rendition := range asset.Renditions {
+		if rendition.Name != "original" || rendition.Storage != StorageManaged || rendition.ContentType != "model/gltf-binary" || rendition.Format != "glb" {
+			continue
+		}
+		reader, blob, err := l.blobs.Open(ctx, rendition.BlobKey)
+		if err != nil {
+			return Asset{}, nil, err
+		}
+		if blob.Size != rendition.SizeBytes {
+			_ = reader.Close()
+			return Asset{}, nil, errors.New("generated model size does not match its catalog record")
+		}
+		return asset, reader, nil
+	}
+	return Asset{}, nil, store.ErrNotFound
+}
+
 func newAssetID() (string, error) {
+	return randomAssetID("gif_")
+}
+
+func newModelAssetID() (string, error) {
+	return randomAssetID("model_")
+}
+
+func randomAssetID(prefix string) (string, error) {
 	random := make([]byte, 12)
 	if _, err := rand.Read(random); err != nil {
 		return "", err
 	}
-	return "gif_" + hex.EncodeToString(random), nil
+	return prefix + hex.EncodeToString(random), nil
 }

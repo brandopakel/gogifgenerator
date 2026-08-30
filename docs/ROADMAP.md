@@ -31,6 +31,10 @@ Implementation status: feature-complete and ready for device/design-partner test
 
 ## Milestone 2 — useful AI, measured
 
+- Subject-aware prompt-to-reference generation through local ComfyUI or separately opt-in GPT Image 2 (implemented; production evaluation pending)
+- Fail-closed semantic mode that never substitutes procedural shapes for an unavailable AI subject (implemented)
+- Cinematic prompt compiler plus restrained 2.5D motion for semantic keyframes (implemented)
+- First-class prompt-to-GLB creation with curated ComfyUI Tripo/Hunyuan workflows, managed storage, interactive preview, Save, and capability-tested Copy/Share (implemented; paid provider setup and production evaluation pending)
 - Multimodal planning from uploaded media
 - Intent-based caption and moment selection
 - Background removal and subject tracking
@@ -64,6 +68,7 @@ Exit condition: the same account, projects, and generation API work across suppo
 ## Milestone 5 — high-powered engine
 
 - Asynchronous render jobs and progress events
+- Image/multiview-to-3D, 3D rigging/retargeting, smart topology, and direct Blender/Unity/Unreal import after prompt-to-GLB evaluation
 - Composable render-stage contract and local runners: diffusion/reference imagery, textured Blender FBX geometry, Unity 6.3 portable motion/VFX, Unreal Engine 5 cinematic beauty frames, semantic-preserving Go pass compositing, and FFmpeg adaptive-palette encoding (implemented and functionally validated on macOS; production-class hardware validation remains)
 - Capability-based engine selection and reproducible intermediate assets; do not combine independently rendered frames without an explicit compositing contract
 - Reproducible projects and local storage lifecycle policies

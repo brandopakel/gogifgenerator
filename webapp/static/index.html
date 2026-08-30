@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#111318">
-    <meta name="description" content="Create and find the right GIF in seconds.">
+    <meta name="description" content="Create and find GIFs, stickers, clips, and 3D models.">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -26,12 +26,13 @@
     </header>
 
     <main>
-      <section class="hero" aria-label="Create, edit, or search for a GIF">
+      <section class="hero" aria-label="Create, edit, or search media">
         <div class="command-row">
-          <div class="mode-switch" role="tablist" aria-label="Choose a GIF action">
+          <div class="mode-switch" role="tablist" aria-label="Choose an action">
             <button id="create-tab" class="mode active" data-mode="create" role="tab" aria-controls="create-panel" aria-selected="true" type="button">Create</button>
             <button id="edit-tab" class="mode" data-mode="edit" role="tab" aria-controls="create-panel" aria-selected="false" type="button">Edit</button>
             <button id="search-tab" class="mode" data-mode="search" role="tab" aria-controls="search-panel" aria-selected="false" type="button">Search</button>
+            <button id="model-tab" class="mode" data-mode="model" role="tab" aria-controls="create-panel" aria-selected="false" type="button">3D</button>
           </div>
 
           <form id="prompt-form" class="prompt-form">
@@ -49,6 +50,12 @@
             <option value="gifs">Actual GIFs</option>
             <option value="stickers">Stickers</option>
             <option value="source">Source clips &amp; images</option>
+          </select>
+        </div>
+        <div id="model-options" class="search-options" hidden>
+          <label for="model-recipe">3D workflow</label>
+          <select id="model-recipe">
+            <option value="tripo-3.1">Tripo 3.1 · detailed PBR</option>
           </select>
         </div>
         <div id="upload-editor" class="upload-editor" hidden>
@@ -71,6 +78,7 @@
           </div>
           <img id="gif-preview" alt="Your generated GIF" hidden>
           <video id="video-preview" muted playsinline controls hidden></video>
+          <model-viewer id="model-preview" alt="Your generated 3D model" camera-controls auto-rotate shadow-intensity="1" touch-action="pan-y" hidden></model-viewer>
           <div id="editor-overlay" class="editor-overlay" hidden>
             <span class="crop-guide"></span>
             <span id="caption-guide" class="caption-guide" role="slider" tabindex="0" aria-label="Caption vertical position" aria-valuemin="0" aria-valuemax="2" aria-valuenow="2">CAPTION</span>
@@ -91,9 +99,15 @@
             <a id="download-button" class="primary-button disabled" download="gogif.gif" aria-disabled="true">Download</a>
           </div>
         </div>
-        <details class="controls">
+        <details id="generation-controls" class="controls">
           <summary>Fine tune</summary>
           <div class="control-grid">
+            <label id="generation-mode-field">Visual source
+              <select id="generation-mode-control">
+                <option value="semantic">Realistic AI · subject-aware</option>
+                <option value="fast">Fast local · abstract</option>
+              </select>
+            </label>
             <label id="preset-field" hidden>Export preset
               <select id="preset-control">
                 <option value="messages">Messages · balanced</option>
@@ -196,6 +210,7 @@
       <a href="https://github.com/brandopakel/gogifgenerator" rel="noreferrer">Source</a>
     </footer>
     <div id="toast" class="toast" role="status" hidden></div>
+    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.3.1/model-viewer.min.js"></script>
     <script src="/app.js" defer></script>
   </body>
 </html>

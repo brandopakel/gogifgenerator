@@ -4,22 +4,29 @@ package planner
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
 )
 
 type Request struct {
-	Prompt  string `json:"prompt"`
-	Width   int    `json:"width,omitempty"`
-	Height  int    `json:"height,omitempty"`
-	Frames  int    `json:"frames,omitempty"`
-	DelayMS int    `json:"delay_ms,omitempty"`
-	Seed    int64  `json:"seed,omitempty"`
+	Prompt         string `json:"prompt"`
+	Width          int    `json:"width,omitempty"`
+	Height         int    `json:"height,omitempty"`
+	Frames         int    `json:"frames,omitempty"`
+	DelayMS        int    `json:"delay_ms,omitempty"`
+	Seed           int64  `json:"seed,omitempty"`
+	GenerationMode string `json:"generation_mode,omitempty"`
 }
 
 func (r Request) Validate() error {
 	if len(r.Prompt) < 1 || len(r.Prompt) > 500 {
 		return fmt.Errorf("prompt must contain between 1 and 500 characters")
+	}
+	switch strings.ToLower(strings.TrimSpace(r.GenerationMode)) {
+	case "", "fast", "semantic":
+	default:
+		return fmt.Errorf("generation_mode must be fast or semantic")
 	}
 	return nil
 }

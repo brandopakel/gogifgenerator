@@ -110,6 +110,27 @@ func TestReferenceRemixRecognizesEnabledQualityPipeline(t *testing.T) {
 	}
 }
 
+func TestCreateModeRequestsSemanticGenerationExplicitly(t *testing.T) {
+	index, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{`value="semantic"`, "Realistic AI · subject-aware"} {
+		if !strings.Contains(string(index), marker) {
+			t.Fatalf("index.html does not contain %q", marker)
+		}
+	}
+	for _, marker := range []string{"generation_mode: elements.generationMode.value", "image_generator?.semantic", "Realistic AI · setup required"} {
+		if !strings.Contains(string(script), marker) {
+			t.Fatalf("app.js does not contain %q", marker)
+		}
+	}
+}
+
 func TestResultActionsFallBackToShareableGIFLink(t *testing.T) {
 	data, err := fs.ReadFile(Files(), "app.js")
 	if err != nil {
@@ -118,9 +139,30 @@ func TestResultActionsFallBackToShareableGIFLink(t *testing.T) {
 	script := string(data)
 	for _, marker := range []string{
 		"response.headers.get('Location')", "function copyResultLink()", "navigator.clipboard.writeText(state.resultURL)",
-		"a shareable GIF link was copied", "its GIF link was copied",
+		"so its link was copied", "ClipboardItem.supports(contentType)",
 	} {
 		if !strings.Contains(script, marker) {
+			t.Fatalf("app.js does not contain %q", marker)
+		}
+	}
+}
+
+func TestFirstClass3DModelCreationAndActions(t *testing.T) {
+	index, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{`data-mode="model"`, `id="model-recipe"`, `id="model-preview"`, `model-viewer/4.3.1/model-viewer.min.js`} {
+		if !strings.Contains(string(index), marker) {
+			t.Fatalf("index.html does not contain %q", marker)
+		}
+	}
+	for _, marker := range []string{"/api/v1/models/generate", "presentModelResult", "model/gltf-binary", "gogif-model.glb", "Save .GLB"} {
+		if !strings.Contains(string(script), marker) {
 			t.Fatalf("app.js does not contain %q", marker)
 		}
 	}

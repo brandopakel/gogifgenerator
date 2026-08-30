@@ -7,7 +7,7 @@ GoGIF has two jobs that should feel like one action:
 1. **Create** — translate a human idea into an animation plan, then render it.
 2. **Find** — federate a typed query across approved catalogs and personal media.
 
-The input and result surfaces are shared. The systems behind them are deliberately separate because generation is compute-bound and owned by GoGIF, while catalog search is governed by provider terms, attribution, analytics, and rate limits.
+The input and result surfaces are shared. GIF and 3D outputs remain distinct media contracts: an animated image is not used as a container for a model, and a GLB retains its geometry, materials, and animation data. The systems behind creation and discovery are deliberately separate because generation is compute-bound and owned by GoGIF, while catalog search is governed by provider terms, attribution, analytics, and rate limits.
 
 ## Current boundaries
 
@@ -15,6 +15,7 @@ The input and result surfaces are shared. The systems behind them are deliberate
 | --- | --- | --- |
 | `internal/planner` | Prompt → validated animation spec | Offline deterministic planner; optional OpenAI adapter |
 | `internal/imagegen` | Prompt/reference images → generated still image | Local Blender procedural adapter and native ComfyUI adapter |
+| `internal/modelgen` | Prompt → portable 3D asset | Allowlisted ComfyUI Tripo 3.1 and Hunyuan 3D 3.1 workflows returning validated GLB bytes |
 | `internal/cinematic` | Multi-engine job manifest, stage isolation, pass compositing, and final sequence validation | Blender FBX stage, Unity 6.3 batch stage, Unreal Engine 5 batch stage, and FFmpeg adaptive-palette encoder |
 | `internal/reference` | Approved provider item → bounded temporary input | Revalidation, exact-host allowlist, MIME/size checks, SHA-256, deletion |
 | `internal/gif` | Stable domain contract and safety bounds | Dimensions, timing, palette, motion, caption |
@@ -72,13 +73,15 @@ The default topology runs on the user's computer: one Go process, an in-memory c
 
 Cloud object storage, managed databases, remote GPU workers, and hosted model APIs are optional deployment choices, not prerequisites. A public multi-user service cannot promise zero ongoing cost because its compute, bandwidth, and storage must run somewhere.
 
+Paid Comfy Partner Nodes are a separate, explicit exception to zero-spend operation. `internal/modelgen` is not constructed unless a server-side Comfy account key, a selected generator, and `GOGIF_ENABLE_PAID_MODEL_GENERATION=true` are all present. Its recipe registry owns every node class, input, output, and size bound; the public API accepts only a recipe ID and validated prompt, never arbitrary workflow JSON.
+
 ## Rendering evolution
 
 The pure-Go renderer is universally buildable and owns final cropping, captions, timing, palette conversion, and target-size retries. Photo and GIF inputs decode in-process under explicit pixel/frame limits. Short video remains optional: `internal/video/ffmpeg` writes one request to a private temporary directory, invokes a local executable without a shell, bounds the clip to fifteen seconds and forty-eight frames, decodes the result, and removes the directory. Future renderers can add better typography, stickers, subject tracking, animated WebP, and MP4 behind the same contracts.
 
-The implemented cinematic contract is sequential rather than a blend of unrelated final renders. ComfyUI or a validated user/provider image supplies optional semantic reference imagery. Blender creates a portable FBX asset and preview. Unity 6.3 writes a versioned, renderer-neutral motion contract and transparent VFX frames. Unreal Engine 5 imports the FBX, applies that motion, and renders the opaque cinematic beauty frames. Go validates and alpha-composites the two bounded PNG sequences; FFmpeg performs the final per-animation palette generation and GIF encoding.
+The implemented cinematic contract is sequential rather than a blend of unrelated final renders. GPT Image, ComfyUI, or a validated user/provider image supplies semantic reference imagery. Blender creates a portable FBX asset and preview. Unity 6.3 writes a versioned, renderer-neutral motion contract and transparent VFX frames. Unreal Engine 5 imports the FBX, applies that motion, and renders the opaque cinematic beauty frames. Go applies restrained 2.5D camera motion to the semantic keyframe and alpha-composites the validated engine sequences; FFmpeg performs the final per-animation palette generation and GIF encoding.
 
-Every job uses a private temporary workspace and a Go-authored versioned manifest. HTTP clients cannot choose filesystem paths or command arguments. Each stage has a deadline and bounded diagnostics, and downstream work begins only after the expected asset, motion, or frame contract passes size, format, dimension, and count validation. The workspace is deleted on success or failure. The pipeline is disabled unless `GOGIF_ENABLE_QUALITY_PIPELINE=true`; enabling it is strict and startup fails if any configured engine, project, or script is missing. Neither 3D engine provides prompt-level photorealistic synthesis by itself, so ComfyUI or another explicitly configured image/video model remains the semantic-realism stage.
+Every job uses a private temporary workspace and a Go-authored versioned manifest. HTTP clients cannot choose filesystem paths or command arguments. Each stage has a deadline and bounded diagnostics, and downstream work begins only after the expected asset, motion, or frame contract passes size, format, dimension, and count validation. The workspace is deleted on success or failure. The pipeline is disabled unless `GOGIF_ENABLE_QUALITY_PIPELINE=true`; enabling it is strict and startup fails if any configured engine, project, or script is missing. Neither 3D engine provides prompt-level synthesis by itself. `generation_mode=semantic` therefore requires an explicitly configured semantic model and fails clearly rather than falling back to abstract geometry.
 
 ## Deployment path
 

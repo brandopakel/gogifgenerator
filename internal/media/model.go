@@ -16,6 +16,7 @@ const (
 	KindClip  Kind = "clip"
 	KindVideo Kind = "video"
 	KindImage Kind = "image"
+	KindModel Kind = "model"
 )
 
 type State string
@@ -113,7 +114,7 @@ func (a Asset) Validate() error {
 	if !validID(a.ID) {
 		return errors.New("asset ID must contain 1-128 letters, numbers, underscores, or hyphens")
 	}
-	if !oneOf(string(a.Kind), string(KindGIF), string(KindClip), string(KindVideo), string(KindImage)) {
+	if !oneOf(string(a.Kind), string(KindGIF), string(KindClip), string(KindVideo), string(KindImage), string(KindModel)) {
 		return fmt.Errorf("unsupported asset kind %q", a.Kind)
 	}
 	if !oneOf(string(a.State), string(StateProcessing), string(StateReady), string(StateBlocked), string(StateDeleted)) {

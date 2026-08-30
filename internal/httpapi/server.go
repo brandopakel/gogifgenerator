@@ -27,6 +27,7 @@ import (
 	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
 	"github.com/brandopakel/gogifgenerator/internal/media"
+	"github.com/brandopakel/gogifgenerator/internal/modelgen"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
 	"github.com/brandopakel/gogifgenerator/internal/reference"
@@ -46,8 +47,11 @@ type Options struct {
 	CatalogBackend    string
 	GeneratedSaver    media.GeneratedSaver
 	GeneratedReader   media.GeneratedReader
+	ModelSaver        media.ModelSaver
+	ModelReader       media.ModelReader
 	Providers         []provider.Provider
 	ImageGenerator    imagegen.Generator
+	ModelGenerator    modelgen.Generator
 	CinematicRenderer cinematic.Renderer
 	CinematicStatus   cinematic.Descriptor
 	ReferenceFetcher  *reference.Fetcher
@@ -75,6 +79,8 @@ func New(options Options) http.Handler {
 	mux.HandleFunc("POST /api/v1/gifs/generate-from-reference", server.generateFromReference)
 	mux.HandleFunc("POST /api/v1/gifs/generate-from-upload", server.generateFromUpload)
 	mux.HandleFunc("GET /api/v1/gifs/{id}", server.generated)
+	mux.HandleFunc("POST /api/v1/models/generate", server.generateModel)
+	mux.HandleFunc("GET /api/v1/models/{id}", server.generatedModel)
 	mux.Handle("/", staticHandler())
 	return server.securityHeaders(server.accessLog(mux))
 }
@@ -83,6 +89,11 @@ type server struct {
 	options   Options
 	providers map[string]provider.Provider
 }
+
+var (
+	errSemanticUnavailable = errors.New("semantic image generation is not configured")
+	errSemanticGeneration  = errors.New("semantic image generation failed")
+)
 
 func (s *server) health(w http.ResponseWriter, r *http.Request) {
 	statusCode := http.StatusOK
@@ -132,9 +143,65 @@ func (s *server) publicConfig(w http.ResponseWriter, _ *http.Request) {
 		"giphy_api_key":    s.options.GiphyAPIKey,
 		"providers":        providers,
 		"image_generator":  imageGeneratorDescriptor(s.options.ImageGenerator),
+		"model_generator":  modelGeneratorDescriptor(s.options.ModelGenerator),
 		"quality_pipeline": s.options.CinematicStatus,
 		"video_editor":     videoDecoderDescriptor(s.options.VideoDecoder),
 	})
+}
+
+func (s *server) generateModel(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	var request modelgen.Request
+	if err := decoder.Decode(&request); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request is too large")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "invalid JSON request: "+err.Error())
+		return
+	}
+	if err := request.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if s.options.ModelGenerator == nil {
+		writeError(w, http.StatusServiceUnavailable, "3D generation needs a configured ComfyUI 3D workflow and API key")
+		return
+	}
+	result, err := s.options.ModelGenerator.Generate(r.Context(), request)
+	if err != nil {
+		s.options.Logger.Warn("3D model generation failed", "error", err)
+		writeError(w, http.StatusBadGateway, "3D model generation failed: "+err.Error())
+		return
+	}
+	if len(result.Data) < 12 || len(result.Data) > modelgen.MaxOutputBytes || string(result.Data[:4]) != "glTF" || result.ContentType != "model/gltf-binary" {
+		s.options.Logger.Warn("3D model generator returned invalid output", "engine", result.Engine)
+		writeError(w, http.StatusBadGateway, "3D model generator returned an invalid GLB")
+		return
+	}
+	if s.options.ModelSaver != nil {
+		asset, saveErr := s.options.ModelSaver.SaveModel(r.Context(), media.GeneratedModel{
+			Prompt: request.Prompt, Engine: result.Engine, Data: result.Data,
+		})
+		if saveErr != nil {
+			s.options.Logger.Warn("save generated 3D model", "error", saveErr)
+		} else {
+			w.Header().Set("X-GoGIF-Asset-ID", asset.ID)
+			w.Header().Set("Location", "/api/v1/models/"+asset.ID)
+		}
+	}
+	w.Header().Set("Content-Type", "model/gltf-binary")
+	w.Header().Set("Content-Disposition", `inline; filename="gogif-model.glb"`)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-GoGIF-Engine", result.Engine)
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(result.Data); err != nil {
+		s.options.Logger.Error("write GLB response", "error", err)
+	}
 }
 
 func (s *server) searchProvider(w http.ResponseWriter, r *http.Request) {
@@ -266,8 +333,16 @@ func (s *server) generate(w http.ResponseWriter, r *http.Request) {
 	}
 	data, engine, err := s.createGIF(r.Context(), request, result, nil, false)
 	if err != nil {
-		s.options.Logger.Error("create GIF", "error", err)
-		writeError(w, http.StatusInternalServerError, "could not render GIF")
+		switch {
+		case errors.Is(err, errSemanticUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "Realistic AI generation is not configured. Configure OpenAI Images or ComfyUI, or choose Fast local.")
+		case errors.Is(err, errSemanticGeneration):
+			s.options.Logger.Warn("semantic GIF generation failed", "error", err)
+			writeError(w, http.StatusBadGateway, "The semantic image generator could not create this scene. Try again or choose Fast local.")
+		default:
+			s.options.Logger.Error("create GIF", "error", err)
+			writeError(w, http.StatusInternalServerError, "could not render GIF")
+		}
 		return
 	}
 	s.writeGenerated(w, r, request, result, data, engine, nil)
@@ -561,15 +636,16 @@ func skipGIFSubBlocks(data []byte, position int) (int, error) {
 }
 
 type referenceGenerateRequest struct {
-	Provider   string `json:"provider"`
-	ExternalID string `json:"external_id"`
-	Locale     string `json:"locale,omitempty"`
-	Prompt     string `json:"prompt"`
-	Width      int    `json:"width,omitempty"`
-	Height     int    `json:"height,omitempty"`
-	Frames     int    `json:"frames,omitempty"`
-	DelayMS    int    `json:"delay_ms,omitempty"`
-	Seed       int64  `json:"seed,omitempty"`
+	Provider       string `json:"provider"`
+	ExternalID     string `json:"external_id"`
+	Locale         string `json:"locale,omitempty"`
+	Prompt         string `json:"prompt"`
+	Width          int    `json:"width,omitempty"`
+	Height         int    `json:"height,omitempty"`
+	Frames         int    `json:"frames,omitempty"`
+	DelayMS        int    `json:"delay_ms,omitempty"`
+	Seed           int64  `json:"seed,omitempty"`
+	GenerationMode string `json:"generation_mode,omitempty"`
 }
 
 func (s *server) generateFromReference(w http.ResponseWriter, r *http.Request) {
@@ -646,12 +722,19 @@ func (s *server) generateFromReference(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) createGIF(ctx context.Context, request planner.Request, result planner.Result, inputs []imagegen.Input, requireGenerator bool) ([]byte, string, error) {
+	semanticRequired := strings.EqualFold(strings.TrimSpace(request.GenerationMode), "semantic") && len(inputs) == 0
+	if semanticRequired && (s.options.ImageGenerator == nil || !s.options.ImageGenerator.Descriptor().Semantic) {
+		return nil, "", errSemanticUnavailable
+	}
 	if s.options.CinematicRenderer != nil {
 		generated, renderErr := s.options.CinematicRenderer.Render(ctx, cinematic.Request{
 			Prompt: request.Prompt, Inputs: inputs, Spec: result.Spec,
 		})
 		if renderErr == nil {
 			return generated.Data, generated.Engine + "+" + result.Engine, nil
+		}
+		if semanticRequired {
+			return nil, "", fmt.Errorf("%w: %v", errSemanticGeneration, renderErr)
 		}
 		s.options.Logger.Warn("cinematic renderer unavailable; using still-image pipeline", "renderer", s.options.CinematicRenderer.Descriptor().ID, "error", renderErr)
 	}
@@ -662,17 +745,26 @@ func (s *server) createGIF(ctx context.Context, request planner.Request, result 
 			Prompt: request.Prompt, Inputs: inputs, Width: result.Spec.Width, Height: result.Spec.Height, Seed: result.Spec.Seed,
 		})
 		if generateErr != nil {
-			if requireGenerator {
+			if requireGenerator || semanticRequired {
+				if semanticRequired {
+					return nil, "", fmt.Errorf("%w: %v", errSemanticGeneration, generateErr)
+				}
 				return nil, "", generateErr
 			}
 			s.options.Logger.Warn("local image generator unavailable; using Go renderer", "generator", s.options.ImageGenerator.Descriptor().ID, "error", generateErr)
 		} else if source, _, decodeErr := image.Decode(bytes.NewReader(generated.Data)); decodeErr != nil {
-			if requireGenerator {
+			if requireGenerator || semanticRequired {
+				if semanticRequired {
+					return nil, "", fmt.Errorf("%w: decode generated image: %v", errSemanticGeneration, decodeErr)
+				}
 				return nil, "", fmt.Errorf("decode generated image: %w", decodeErr)
 			}
 			s.options.Logger.Warn("decode locally generated image; using Go renderer", "generator", generated.Engine, "error", decodeErr)
 		} else if renderErr := render.ImageGIF(&output, source, result.Spec); renderErr != nil {
-			if requireGenerator {
+			if requireGenerator || semanticRequired {
+				if semanticRequired {
+					return nil, "", fmt.Errorf("%w: animate generated image: %v", errSemanticGeneration, renderErr)
+				}
 				return nil, "", fmt.Errorf("animate generated image: %w", renderErr)
 			}
 			s.options.Logger.Warn("animate locally generated image; using Go renderer", "generator", generated.Engine, "error", renderErr)
@@ -759,10 +851,20 @@ func decodeReferenceRequest(w http.ResponseWriter, r *http.Request) (referenceGe
 }
 
 func (r referenceGenerateRequest) plannerRequest() planner.Request {
-	return planner.Request{Prompt: r.Prompt, Width: r.Width, Height: r.Height, Frames: r.Frames, DelayMS: r.DelayMS, Seed: r.Seed}
+	return planner.Request{
+		Prompt: r.Prompt, Width: r.Width, Height: r.Height, Frames: r.Frames,
+		DelayMS: r.DelayMS, Seed: r.Seed, GenerationMode: r.GenerationMode,
+	}
 }
 
 func imageGeneratorDescriptor(generator imagegen.Generator) any {
+	if generator == nil {
+		return nil
+	}
+	return generator.Descriptor()
+}
+
+func modelGeneratorDescriptor(generator modelgen.Generator) any {
 	if generator == nil {
 		return nil
 	}
@@ -811,6 +913,30 @@ func (s *server) generated(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 	if _, err := io.Copy(w, reader); err != nil {
 		s.options.Logger.Error("serve generated GIF", "id", asset.ID, "error", err)
+	}
+}
+
+func (s *server) generatedModel(w http.ResponseWriter, r *http.Request) {
+	if s.options.ModelReader == nil {
+		http.NotFound(w, r)
+		return
+	}
+	asset, reader, err := s.options.ModelReader.OpenModel(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		s.options.Logger.Error("open generated 3D model", "id", r.PathValue("id"), "error", err)
+		writeError(w, http.StatusInternalServerError, "could not read generated 3D model")
+		return
+	}
+	defer reader.Close()
+	w.Header().Set("Content-Type", "model/gltf-binary")
+	w.Header().Set("Content-Disposition", `inline; filename="`+asset.ID+`.glb"`)
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	if _, err := io.Copy(w, reader); err != nil {
+		s.options.Logger.Error("serve generated 3D model", "id", asset.ID, "error", err)
 	}
 }
 
@@ -1059,7 +1185,7 @@ func (s *server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data: https://*.giphy.com https://media0.giphy.com https://media1.giphy.com https://media2.giphy.com https://media3.giphy.com https://media4.giphy.com https://i.giphy.com https://upload.wikimedia.org https://blob.gifcities.org https://archive.org https://images-assets.nasa.gov; media-src 'self' blob: https://*.giphy.com https://archive.org https://*.archive.org https://images-assets.nasa.gov; connect-src 'self' https://api.giphy.com; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data: https://*.giphy.com https://media0.giphy.com https://media1.giphy.com https://media2.giphy.com https://media3.giphy.com https://media4.giphy.com https://i.giphy.com https://upload.wikimedia.org https://blob.gifcities.org https://archive.org https://images-assets.nasa.gov; media-src 'self' blob: https://*.giphy.com https://archive.org https://*.archive.org https://images-assets.nasa.gov; connect-src 'self' blob: https://api.giphy.com https://www.gstatic.com; style-src 'self'; script-src 'self' https://ajax.googleapis.com https://www.gstatic.com 'wasm-unsafe-eval'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
 }
