@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brandopakel/gogifgenerator/internal/cinematic"
 	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
 	"github.com/brandopakel/gogifgenerator/internal/media"
@@ -36,19 +37,21 @@ import (
 )
 
 type Options struct {
-	Planner          planner.Planner
-	Logger           *slog.Logger
-	AIEnabled        bool
-	AIModel          string
-	GiphyAPIKey      string
-	Catalog          store.KV
-	CatalogBackend   string
-	GeneratedSaver   media.GeneratedSaver
-	GeneratedReader  media.GeneratedReader
-	Providers        []provider.Provider
-	ImageGenerator   imagegen.Generator
-	ReferenceFetcher *reference.Fetcher
-	VideoDecoder     video.Decoder
+	Planner           planner.Planner
+	Logger            *slog.Logger
+	AIEnabled         bool
+	AIModel           string
+	GiphyAPIKey       string
+	Catalog           store.KV
+	CatalogBackend    string
+	GeneratedSaver    media.GeneratedSaver
+	GeneratedReader   media.GeneratedReader
+	Providers         []provider.Provider
+	ImageGenerator    imagegen.Generator
+	CinematicRenderer cinematic.Renderer
+	CinematicStatus   cinematic.Descriptor
+	ReferenceFetcher  *reference.Fetcher
+	VideoDecoder      video.Decoder
 }
 
 func New(options Options) http.Handler {
@@ -98,11 +101,12 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, statusCode, map[string]any{
-		"status":          status,
-		"service":         "gogif",
-		"ai":              s.options.AIEnabled,
-		"catalog":         catalogStatus,
-		"catalog_backend": s.options.CatalogBackend,
+		"status":           status,
+		"service":          "gogif",
+		"ai":               s.options.AIEnabled,
+		"quality_pipeline": s.options.CinematicStatus.Enabled,
+		"catalog":          catalogStatus,
+		"catalog_backend":  s.options.CatalogBackend,
 	})
 }
 
@@ -123,12 +127,13 @@ func (s *server) publicConfig(w http.ResponseWriter, _ *http.Request) {
 		providers = append(providers, map[string]any{"id": descriptor.ID, "label": descriptor.Label, "enabled": true})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"planner":         mode,
-		"model":           s.options.AIModel,
-		"giphy_api_key":   s.options.GiphyAPIKey,
-		"providers":       providers,
-		"image_generator": imageGeneratorDescriptor(s.options.ImageGenerator),
-		"video_editor":    videoDecoderDescriptor(s.options.VideoDecoder),
+		"planner":          mode,
+		"model":            s.options.AIModel,
+		"giphy_api_key":    s.options.GiphyAPIKey,
+		"providers":        providers,
+		"image_generator":  imageGeneratorDescriptor(s.options.ImageGenerator),
+		"quality_pipeline": s.options.CinematicStatus,
+		"video_editor":     videoDecoderDescriptor(s.options.VideoDecoder),
 	})
 }
 
@@ -568,12 +573,8 @@ type referenceGenerateRequest struct {
 }
 
 func (s *server) generateFromReference(w http.ResponseWriter, r *http.Request) {
-	if s.options.ImageGenerator == nil || s.options.ReferenceFetcher == nil {
+	if !s.generationSupportsReferences() || s.options.ReferenceFetcher == nil {
 		writeError(w, http.StatusServiceUnavailable, "local reference generation is not configured")
-		return
-	}
-	if !s.options.ImageGenerator.Descriptor().SupportsReferences {
-		writeError(w, http.StatusUnprocessableEntity, "configured local image generator does not accept reference images")
 		return
 	}
 	request, ok := decodeReferenceRequest(w, r)
@@ -645,6 +646,15 @@ func (s *server) generateFromReference(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) createGIF(ctx context.Context, request planner.Request, result planner.Result, inputs []imagegen.Input, requireGenerator bool) ([]byte, string, error) {
+	if s.options.CinematicRenderer != nil {
+		generated, renderErr := s.options.CinematicRenderer.Render(ctx, cinematic.Request{
+			Prompt: request.Prompt, Inputs: inputs, Spec: result.Spec,
+		})
+		if renderErr == nil {
+			return generated.Data, generated.Engine + "+" + result.Engine, nil
+		}
+		s.options.Logger.Warn("cinematic renderer unavailable; using still-image pipeline", "renderer", s.options.CinematicRenderer.Descriptor().ID, "error", renderErr)
+	}
 	var output bytes.Buffer
 	engine := result.Engine
 	if s.options.ImageGenerator != nil {
@@ -679,6 +689,13 @@ func (s *server) createGIF(ctx context.Context, request planner.Request, result 
 		}
 	}
 	return output.Bytes(), engine, nil
+}
+
+func (s *server) generationSupportsReferences() bool {
+	if s.options.CinematicRenderer != nil && s.options.CinematicRenderer.Descriptor().SupportsReferences {
+		return true
+	}
+	return s.options.ImageGenerator != nil && s.options.ImageGenerator.Descriptor().SupportsReferences
 }
 
 func (s *server) writeGenerated(w http.ResponseWriter, r *http.Request, request planner.Request, result planner.Result, data []byte, engine string, source *provider.Result) {

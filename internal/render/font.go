@@ -2,6 +2,8 @@ package render
 
 import (
 	"image"
+	"image/color"
+	"image/draw"
 	"math"
 	"strings"
 )
@@ -33,6 +35,52 @@ var glyphs = map[rune][7]uint8{
 	':': {0, 4, 0, 0, 4, 0, 0}, '#': {10, 31, 10, 10, 31, 10, 0},
 	'&': {12, 18, 20, 8, 21, 18, 13}, '/': {1, 2, 2, 4, 8, 8, 16},
 	' ': {},
+}
+
+// CaptionImage draws GoGIF's portable bitmap caption directly on a true-color
+// frame. Cinematic sequences use this before FFmpeg palette generation so the
+// final output needs only one color-quantization pass.
+func CaptionImage(frame draw.Image, value string, frameNumber, frames int, position string) {
+	if frame == nil || frame.Bounds().Empty() || frames < 1 {
+		return
+	}
+	value = strings.ToUpper(strings.TrimSpace(value))
+	if value == "" {
+		return
+	}
+	runes := []rune(value)
+	width, height := frame.Bounds().Dx(), frame.Bounds().Dy()
+	available := width - max(24, width/12)
+	scale := min(6, max(1, available/max(1, len(runes)*6-1)))
+	textWidth := (len(runes)*6 - 1) * scale
+	textHeight := 7 * scale
+	x := frame.Bounds().Min.X + (width-textWidth)/2
+	bounce := int(math.Sin(2*math.Pi*float64(frameNumber)/float64(frames)) * float64(max(1, scale/2)))
+	y := frame.Bounds().Min.Y + height - textHeight - max(18, height/14) + bounce
+	switch position {
+	case "top":
+		y = frame.Bounds().Min.Y + max(18, height/14) + bounce
+	case "middle":
+		y = frame.Bounds().Min.Y + (height-textHeight)/2 + bounce
+	}
+	padding := max(6, scale*2)
+	draw.Draw(frame, image.Rect(x-padding, y-padding, x+textWidth+padding, y+textHeight+padding), &image.Uniform{C: color.NRGBA{A: 210}}, image.Point{}, draw.Over)
+	white := &image.Uniform{C: color.NRGBA{R: 255, G: 255, B: 255, A: 255}}
+	for _, character := range runes {
+		glyph, ok := glyphs[character]
+		if !ok {
+			glyph = glyphs['?']
+		}
+		for row, bits := range glyph {
+			for column := 0; column < 5; column++ {
+				if bits&(1<<uint(4-column)) == 0 {
+					continue
+				}
+				draw.Draw(frame, image.Rect(x+column*scale, y+row*scale, x+(column+1)*scale, y+(row+1)*scale), white, image.Point{}, draw.Src)
+			}
+		}
+		x += 6 * scale
+	}
 }
 
 func drawCaption(frame *image.Paletted, value string, frameNumber, frames int) {

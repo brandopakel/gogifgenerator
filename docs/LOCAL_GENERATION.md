@@ -2,6 +2,8 @@
 
 GoGIF has three no-key creation paths. The built-in Go renderer is instant and dependency-free. Blender produces original procedural 3D art. ComfyUI runs a diffusion checkpoint locally and can transform one rights-approved Wikimedia image.
 
+A fourth, explicitly enabled cinematic path coordinates Blender, Unity 6.3, Unreal Engine 5, and FFmpeg. It has no hosted API dependency, but the editor installations are large and have their own activation, licensing, and hardware requirements. See [Cinematic pipeline](CINEMATIC_PIPELINE.md).
+
 Local software does not create a vendor bill, but it still uses your disk, bandwidth, CPU/GPU, and electricity. Every downloaded checkpoint has its own license; “free to download” does not automatically mean unrestricted commercial use.
 
 ## Blender

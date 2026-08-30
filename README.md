@@ -9,6 +9,7 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Pure-Go animated GIF renderer with orbit, pulse, wave, and confetti motion systems
 - Free local Blender still generation, animated and encoded into GIFs by Go
 - Native local ComfyUI adapter for text-to-image and one licensed reference image
+- Capability-gated cinematic pipeline for AI/reference imagery → Blender FBX assets → Unity 6.3 motion/VFX → Unreal Engine 5 beauty frames → FFmpeg GIF encoding
 - Natural-language art planning with a deterministic offline planner
 - Optional, disabled-by-default OpenAI art direction through the Responses API and strict structured output
 - Automatic local fallback if the AI provider is unavailable
@@ -50,11 +51,13 @@ GOGIF_IMAGE_GENERATOR=blender make run
 
 Blender is not a diffusion model: it creates an original prompt-seeded 3D scene without a model download, account, or network call. For local diffusion and licensed reference remixes, use the ComfyUI setup in [Local generation](docs/LOCAL_GENERATION.md).
 
+The multi-engine quality pipeline is implemented behind an explicit opt-in. Blender and FFmpeg are available on the current test Mac; Unity 6.3 and Unreal Engine 5 must be installed and activated before that pipeline can run. GoGIF reports every stage and its availability through `/api/v1/config`, rejects incomplete engine output, and keeps the existing renderer as the default. See [Cinematic pipeline](docs/CINEMATIC_PIPELINE.md).
+
 ### Keys and accounts
 
 | Capability | Key needed? | Cost behavior |
 | --- | --- | --- |
-| Go renderer, Blender, local ComfyUI, MemKV | No | Runs on hardware you own |
+| Go renderer, Blender, local ComfyUI, Unity/Unreal batch workers, MemKV | No API key | Runs on hardware you own; editor licenses and terms still apply |
 | Local short-video trim with FFmpeg | No | Optional executable on the GoGIF server; source and decoded frames are request-scoped |
 | Wikimedia Commons, GifCities, Prelinger, and NASA search | No | Source media remains provider-hosted; normal bandwidth only |
 | Public ungated model checkpoint | Usually no | License and hardware requirements are model-specific |
@@ -129,6 +132,7 @@ The first release is intentionally a modular monolith:
 phone / desktop PWA ─┐
 browser extension ───┼──> Go HTTP API ──┬─> local planner
 web browser ─────────┘                   ├─> Go / Blender / ComfyUI ──> animated GIF
+                                        ├─> Blender → Unity 6.3 → Unreal 5 → FFmpeg
                                         └─> provider adapters ──> Wikimedia / GifCities / Prelinger / NASA
 ```
 

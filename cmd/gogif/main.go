@@ -10,6 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/brandopakel/gogifgenerator/internal/cinematic"
+	filmblender "github.com/brandopakel/gogifgenerator/internal/cinematic/blender"
+	filmffmpeg "github.com/brandopakel/gogifgenerator/internal/cinematic/ffmpeg"
+	"github.com/brandopakel/gogifgenerator/internal/cinematic/unity"
+	"github.com/brandopakel/gogifgenerator/internal/cinematic/unreal"
 	"github.com/brandopakel/gogifgenerator/internal/config"
 	"github.com/brandopakel/gogifgenerator/internal/httpapi"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
@@ -147,20 +152,71 @@ func main() {
 		os.Exit(1)
 	}
 
+	pipelineStatus := cinematic.DisabledDescriptor([]cinematic.StageDescriptor{
+		cinematic.ProbeExecutable("blender", "Blender", "assets and geometry", settings.BlenderExecutable),
+		cinematic.ProbeExecutable("unity-6.3", "Unity 6.3", "portable motion and transparent VFX", settings.UnityExecutable),
+		cinematic.ProbeExecutable("unreal-5", "Unreal Engine 5", "cinematic beauty rendering", settings.UnrealExecutable),
+		cinematic.ProbeExecutable("ffmpeg", "FFmpeg", "palette and GIF encoding", settings.FFmpegExecutable),
+	})
+	var cinematicRenderer cinematic.Renderer
+	if settings.QualityPipelineEnabled {
+		blenderStage, err := filmblender.New(filmblender.Options{Executable: settings.BlenderExecutable})
+		if err != nil {
+			logger.Error("configure cinematic Blender stage", "error", err)
+			os.Exit(1)
+		}
+		unityStage, err := unity.New(unity.Options{
+			Executable: settings.UnityExecutable, Project: settings.UnityProject, Method: settings.UnityMethod,
+		})
+		if err != nil {
+			logger.Error("configure cinematic Unity stage", "error", err)
+			os.Exit(1)
+		}
+		unrealStage, err := unreal.New(unreal.Options{
+			Executable: settings.UnrealExecutable, Project: settings.UnrealProject, Script: settings.UnrealScript,
+		})
+		if err != nil {
+			logger.Error("configure cinematic Unreal stage", "error", err)
+			os.Exit(1)
+		}
+		encoder, err := filmffmpeg.New(filmffmpeg.Options{Executable: settings.FFmpegExecutable})
+		if err != nil {
+			logger.Error("configure cinematic FFmpeg encoder", "error", err)
+			os.Exit(1)
+		}
+		var referenceGenerator imagegen.Generator
+		if stillGenerator != nil && stillGenerator.Descriptor().ID != "blender-local" {
+			referenceGenerator = stillGenerator
+		}
+		pipeline, err := cinematic.New(cinematic.PipelineOptions{
+			ReferenceGenerator: referenceGenerator,
+			Stages:             []cinematic.Stage{blenderStage, unityStage, unrealStage},
+			Encoder:            encoder,
+		})
+		if err != nil {
+			logger.Error("configure cinematic quality pipeline", "error", err)
+			os.Exit(1)
+		}
+		cinematicRenderer = pipeline
+		pipelineStatus = pipeline.Descriptor()
+	}
+
 	handler := httpapi.New(httpapi.Options{
-		Planner:          animationPlanner,
-		Logger:           logger,
-		AIEnabled:        paidAIEnabled,
-		AIModel:          settings.OpenAIModel,
-		GiphyAPIKey:      settings.GiphyAPIKey,
-		Catalog:          catalog,
-		CatalogBackend:   catalogBackend,
-		GeneratedSaver:   generatedSaver,
-		GeneratedReader:  generatedReader,
-		Providers:        mediaProviders,
-		ImageGenerator:   stillGenerator,
-		ReferenceFetcher: referenceFetcher,
-		VideoDecoder:     videoDecoder,
+		Planner:           animationPlanner,
+		Logger:            logger,
+		AIEnabled:         paidAIEnabled,
+		AIModel:           settings.OpenAIModel,
+		GiphyAPIKey:       settings.GiphyAPIKey,
+		Catalog:           catalog,
+		CatalogBackend:    catalogBackend,
+		GeneratedSaver:    generatedSaver,
+		GeneratedReader:   generatedReader,
+		Providers:         mediaProviders,
+		ImageGenerator:    stillGenerator,
+		CinematicRenderer: cinematicRenderer,
+		CinematicStatus:   pipelineStatus,
+		ReferenceFetcher:  referenceFetcher,
+		VideoDecoder:      videoDecoder,
 	})
 	writeTimeout := 30 * time.Second
 	if videoDecoder != nil {
@@ -168,6 +224,9 @@ func main() {
 	}
 	if stillGenerator != nil {
 		writeTimeout = 5 * time.Minute
+	}
+	if cinematicRenderer != nil {
+		writeTimeout = 30 * time.Minute
 	}
 	server := &http.Server{
 		Addr:              settings.Address,
@@ -193,7 +252,7 @@ func main() {
 	if stillGenerator != nil {
 		imageGeneratorID = stillGenerator.Descriptor().ID
 	}
-	logger.Info("GoGIF is ready", "url", httpapi.AddressURL(settings.Address), "ai", paidAIEnabled, "image_generator", imageGeneratorID, "catalog", catalogBackend)
+	logger.Info("GoGIF is ready", "url", httpapi.AddressURL(settings.Address), "ai", paidAIEnabled, "image_generator", imageGeneratorID, "quality_pipeline", pipelineStatus.Enabled, "catalog", catalogBackend)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)

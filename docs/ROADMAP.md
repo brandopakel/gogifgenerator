@@ -63,7 +63,7 @@ Exit condition: the same account, projects, and generation API work across suppo
 ## Milestone 5 — high-powered engine
 
 - Asynchronous render jobs and progress events
-- Composable render stages: diffusion/reference imagery for semantic realism, Blender for geometry/assets, Unity 6 LTS for real-time animation/camera/VFX, and Go/FFmpeg for final timing and encoding
+- Composable render-stage contract and local runners: diffusion/reference imagery, Blender FBX geometry, Unity 6.3 portable motion/VFX, Unreal Engine 5 cinematic beauty frames, Go pass compositing, and FFmpeg adaptive-palette encoding (implemented; Unity/Unreal hardware validation remains)
 - Capability-based engine selection and reproducible intermediate assets; do not combine independently rendered frames without an explicit compositing contract
 - Reproducible projects and local storage lifecycle policies
 - Optional object storage/CDN only for a funded hosted service

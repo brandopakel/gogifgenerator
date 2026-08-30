@@ -971,7 +971,8 @@ function searchCard(item) {
 		preview.addEventListener('click', () => toggleVideoPreview(item, card, media, image, preview));
 		card.append(preview);
 	}
-	const canRemix = state.config?.image_generator?.supports_references
+	const canRemix = (state.config?.image_generator?.supports_references
+		|| (state.config?.quality_pipeline?.enabled && state.config?.quality_pipeline?.supports_references))
 		&& item.transformPolicy === 'allowed'
 		&& item.derivatives === 'allowed'
 		&& item.allowedHandling?.includes('temporary-transform')

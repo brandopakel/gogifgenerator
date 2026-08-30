@@ -15,6 +15,7 @@ The input and result surfaces are shared. The systems behind them are deliberate
 | --- | --- | --- |
 | `internal/planner` | Prompt → validated animation spec | Offline deterministic planner; optional OpenAI adapter |
 | `internal/imagegen` | Prompt/reference images → generated still image | Local Blender procedural adapter and native ComfyUI adapter |
+| `internal/cinematic` | Multi-engine job manifest, stage isolation, pass compositing, and final sequence validation | Blender FBX stage, Unity 6.3 batch stage, Unreal Engine 5 batch stage, and FFmpeg adaptive-palette encoder |
 | `internal/reference` | Approved provider item → bounded temporary input | Revalidation, exact-host allowlist, MIME/size checks, SHA-256, deletion |
 | `internal/gif` | Stable domain contract and safety bounds | Dimensions, timing, palette, motion, caption |
 | `internal/render` | Animation spec → encoded asset | Pure-Go indexed-color GIF renderer |
@@ -75,7 +76,9 @@ Cloud object storage, managed databases, remote GPU workers, and hosted model AP
 
 The pure-Go renderer is universally buildable and owns final cropping, captions, timing, palette conversion, and target-size retries. Photo and GIF inputs decode in-process under explicit pixel/frame limits. Short video remains optional: `internal/video/ffmpeg` writes one request to a private temporary directory, invokes a local executable without a shell, bounds the clip to fifteen seconds and forty-eight frames, decodes the result, and removes the directory. Future renderers can add better typography, stickers, subject tracking, animated WebP, and MP4 behind the same contracts.
 
-A Blender/Unity pipeline should be a sequence, not two opaque generators whose finished pixels are averaged together. Blender can create or transform geometry and scene assets; a supported Unity 6 LTS worker can import those assets and render deterministic camera, character, lighting, and VFX passes in batch mode; Go/FFmpeg can composite and encode the final deliverables. Neither 3D engine provides prompt-level photorealistic synthesis by itself, so ComfyUI or another explicitly configured image/video model remains the semantic realism stage. Unity 5 is retained only in Unity's archive and is not a suitable new worker target; no Unity editor is currently installed on the test Mac.
+The implemented cinematic contract is sequential rather than a blend of unrelated final renders. ComfyUI or a validated user/provider image supplies optional semantic reference imagery. Blender creates a portable FBX asset and preview. Unity 6.3 writes a versioned, renderer-neutral motion contract and transparent VFX frames. Unreal Engine 5 imports the FBX, applies that motion, and renders the opaque cinematic beauty frames. Go validates and alpha-composites the two bounded PNG sequences; FFmpeg performs the final per-animation palette generation and GIF encoding.
+
+Every job uses a private temporary workspace and a Go-authored versioned manifest. HTTP clients cannot choose filesystem paths or command arguments. Each stage has a deadline and bounded diagnostics, and downstream work begins only after the expected asset, motion, or frame contract passes size, format, dimension, and count validation. The workspace is deleted on success or failure. The pipeline is disabled unless `GOGIF_ENABLE_QUALITY_PIPELINE=true`; enabling it is strict and startup fails if any configured engine, project, or script is missing. Neither 3D engine provides prompt-level photorealistic synthesis by itself, so ComfyUI or another explicitly configured image/video model remains the semantic-realism stage.
 
 ## Deployment path
 

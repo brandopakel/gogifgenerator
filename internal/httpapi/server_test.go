@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/brandopakel/gogifgenerator/internal/cinematic"
 	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
 	"github.com/brandopakel/gogifgenerator/internal/media"
@@ -276,6 +277,31 @@ func TestGenerateAnimatesLocalImageGeneratorOutput(t *testing.T) {
 	}
 }
 
+func TestGenerateUsesCinematicPipelineBeforeStillGenerator(t *testing.T) {
+	renderer := &recordingCinematicRenderer{}
+	generator := &recordingImageGenerator{}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate", bytes.NewBufferString(`{
+      "prompt": "cinematic robot",
+      "width": 128,
+      "height": 128,
+      "frames": 4
+    }`))
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, CinematicRenderer: renderer, ImageGenerator: generator}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("X-GoGIF-Engine"); got != "blender+unity-6.3+unreal-5+ffmpeg+local" {
+		t.Fatalf("X-GoGIF-Engine = %q", got)
+	}
+	if renderer.request.Prompt != "cinematic robot" || renderer.request.Spec.Width != 128 {
+		t.Fatalf("Render() request = %#v", renderer.request)
+	}
+	if generator.request.Prompt != "" {
+		t.Fatalf("still generator unexpectedly ran: %#v", generator.request)
+	}
+}
+
 func TestGenerateFromReferenceRevalidatesFetchesAndDeletesSource(t *testing.T) {
 	localGenerator := &recordingImageGenerator{}
 	saver := &recordingSaver{}
@@ -494,6 +520,10 @@ type recordingImageGenerator struct {
 	request imagegen.Request
 }
 
+type recordingCinematicRenderer struct {
+	request cinematic.Request
+}
+
 type recordingVideoDecoder struct {
 	request video.Request
 }
@@ -521,6 +551,26 @@ func (g *recordingImageGenerator) Descriptor() imagegen.Descriptor {
 func (g *recordingImageGenerator) Generate(_ context.Context, request imagegen.Request) (imagegen.Result, error) {
 	g.request = request
 	return imagegen.Result{Data: generatedTestPNG(nil), ContentType: "image/png", Engine: "test-local"}, nil
+}
+
+func (r *recordingCinematicRenderer) Descriptor() cinematic.Descriptor {
+	return cinematic.Descriptor{ID: "cinematic-local", Label: "Test cinematic", Local: true, Enabled: true, SupportsReferences: true}
+}
+
+func (r *recordingCinematicRenderer) Render(_ context.Context, request cinematic.Request) (cinematic.Result, error) {
+	r.request = request
+	animation := &gif.GIF{LoopCount: 0}
+	for frameNumber := range request.Spec.Frames {
+		frame := image.NewPaletted(image.Rect(0, 0, request.Spec.Width, request.Spec.Height), color.Palette{color.Black, color.White})
+		frame.SetColorIndex(frameNumber, frameNumber, 1)
+		animation.Image = append(animation.Image, frame)
+		animation.Delay = append(animation.Delay, request.Spec.DelayMS/10)
+	}
+	var output bytes.Buffer
+	if err := gif.EncodeAll(&output, animation); err != nil {
+		return cinematic.Result{}, err
+	}
+	return cinematic.Result{Data: output.Bytes(), ContentType: "image/gif", Engine: "blender+unity-6.3+unreal-5+ffmpeg"}, nil
 }
 
 func generatedTestPNG(t *testing.T) []byte {

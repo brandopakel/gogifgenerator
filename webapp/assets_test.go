@@ -80,3 +80,16 @@ func TestServiceWorkerDoesNotInterceptProviderMedia(t *testing.T) {
 		t.Fatal("service worker does not leave cross-origin provider media requests to the browser")
 	}
 }
+
+func TestReferenceRemixRecognizesEnabledQualityPipeline(t *testing.T) {
+	data, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	for _, marker := range []string{"quality_pipeline?.enabled", "quality_pipeline?.supports_references"} {
+		if !strings.Contains(script, marker) {
+			t.Fatalf("app.js does not contain %q", marker)
+		}
+	}
+}
