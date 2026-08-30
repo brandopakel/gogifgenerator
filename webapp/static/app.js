@@ -62,7 +62,7 @@ const elements = {
 };
 
 const state = {
-  mode: 'create', config: null, objectURL: '', uploadPreviewURL: '', resultBlob: null,
+  mode: 'create', config: null, objectURL: '', resultURL: '', uploadPreviewURL: '', resultBlob: null,
   uploadFile: null, seed: 0, installPrompt: null, reference: null, uploadIsVideo: false,
   history: [], historyIndex: -1, applyingHistory: false, currentDraftID: '', drag: null,
   searchRequestID: 0, searchSession: null,
@@ -168,8 +168,9 @@ async function generate(prompt, reroll = false) {
       const problem = await response.json().catch(() => ({}));
       throw new Error(problem.error?.message || `Generation failed (${response.status})`);
     }
+    const resultURL = response.headers.get('Location');
     const blob = await response.blob();
-    presentResult(blob);
+    presentResult(blob, resultURL);
     elements.resultTitle.textContent = prompt.length > 48 ? `${prompt.slice(0, 48)}…` : prompt;
     elements.reroll.disabled = false;
     scrollToElement(elements.createPanel);
@@ -265,8 +266,9 @@ async function exportUpload(caption) {
       const problem = await response.json().catch(() => ({}));
       throw new Error(problem.error?.message || `Upload export failed (${response.status})`);
     }
+    const resultURL = response.headers.get('Location');
     const blob = await response.blob();
-    presentResult(blob);
+    presentResult(blob, resultURL);
     elements.resultTitle.textContent = caption || state.uploadFile.name;
     elements.reroll.disabled = false;
     scrollToElement(elements.createPanel);
@@ -277,9 +279,10 @@ async function exportUpload(caption) {
   }
 }
 
-function presentResult(blob) {
+function presentResult(blob, resultURL = '') {
   if (state.objectURL) URL.revokeObjectURL(state.objectURL);
   state.resultBlob = blob;
+  state.resultURL = resultURL ? new URL(resultURL, window.location.origin).href : '';
   state.objectURL = URL.createObjectURL(blob);
   elements.preview.src = state.objectURL;
   elements.preview.hidden = false;
@@ -301,6 +304,7 @@ function presentResult(blob) {
 function clearResult(restoreUpload = true) {
   if (state.objectURL) URL.revokeObjectURL(state.objectURL);
   state.objectURL = '';
+  state.resultURL = '';
   state.resultBlob = null;
   elements.previewShell.classList.remove('has-result');
   elements.preview.setAttribute('aria-label', 'GIF preview');
@@ -324,28 +328,40 @@ async function shareResult() {
   if (!state.resultBlob) return;
   const file = new File([state.resultBlob], 'gogif.gif', { type: 'image/gif' });
   const shareData = { files: [file], title: 'GoGIF', text: elements.resultTitle.textContent };
-  if (!navigator.share || (navigator.canShare && !navigator.canShare(shareData))) {
-    showToast('File sharing is unavailable here. Use Download instead.');
-    return;
+  if (navigator.share && (!navigator.canShare || navigator.canShare(shareData))) {
+    try {
+      await navigator.share(shareData);
+      return;
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+    }
   }
-  try {
-    await navigator.share(shareData);
-  } catch (error) {
-    if (error.name !== 'AbortError') showToast(error.message);
-  }
+  if (await copyResultLink()) showToast('This browser cannot open file sharing, so a shareable GIF link was copied.');
+  else showToast('File sharing is unavailable here. Download the GIF instead.');
 }
 
 async function copyResult() {
   if (!state.resultBlob) return;
-  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
-    showToast('GIF clipboard writing is unavailable here. Use Share or Download instead.');
-    return;
+  if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/gif': state.resultBlob })]);
+      showToast('GIF copied to the clipboard.');
+      return;
+    } catch {
+      // Most desktop browsers reject animated GIF clipboard items. Fall back to its hosted URL.
+    }
   }
+  if (await copyResultLink()) showToast('This browser cannot copy animated GIF data, so its GIF link was copied.');
+  else showToast('This browser cannot copy the GIF. Download it instead.');
+}
+
+async function copyResultLink() {
+  if (!state.resultURL || !navigator.clipboard?.writeText) return false;
   try {
-    await navigator.clipboard.write([new ClipboardItem({ 'image/gif': state.resultBlob })]);
-    showToast('GIF copied to the clipboard.');
+    await navigator.clipboard.writeText(state.resultURL);
+    return true;
   } catch {
-    showToast('This browser cannot copy animated GIF files. Use Share or Download instead.');
+    return false;
   }
 }
 
@@ -626,6 +642,8 @@ function updateSearchScope() {
 
 function clearSearchResults() {
   clearTimeout(searchTimer);
+  clearTimeout(searchContinuationTimer);
+  searchContinuationTimer = 0;
   state.searchRequestID += 1;
   state.searchSession = null;
   elements.searchResults.replaceChildren();
@@ -633,7 +651,8 @@ function clearSearchResults() {
   elements.searchSentinel.textContent = '';
   elements.searchMessage.hidden = true;
   elements.searchMessage.textContent = '';
-  elements.searchTitle.textContent = elements.searchScope.value === 'gifs' ? 'Find a GIF' : 'Find source media';
+  const emptyTitles = { gifs: 'Find a GIF', stickers: 'Find a sticker', source: 'Find source media' };
+  elements.searchTitle.textContent = emptyTitles[elements.searchScope.value] || 'Find media';
 }
 
 function queueSearch() {
@@ -650,6 +669,8 @@ function queueSearch() {
 
 async function search(query) {
   clearTimeout(searchTimer);
+  clearTimeout(searchContinuationTimer);
+  searchContinuationTimer = 0;
   query = query.trim();
   if (!query) {
     clearSearchResults();
@@ -660,9 +681,13 @@ async function search(query) {
   const apiKey = state.config?.giphy_api_key;
   const loaders = searchScope === 'gifs'
     ? apiKey
-      ? [{ id: 'giphy', load: (cursor) => searchGiphy(query, apiKey, cursor) }]
+      ? [{ id: 'giphy', load: (cursor) => searchGiphy(query, apiKey, cursor, 'gifs') }]
       : [{ id: 'gifcities', load: (cursor) => searchGifCities(query, cursor) }]
-    : [
+    : searchScope === 'stickers'
+      ? apiKey
+        ? [{ id: 'giphy-stickers', load: (cursor) => searchGiphy(query, apiKey, cursor, 'stickers') }]
+        : []
+      : [
         { id: 'wikimedia', load: (cursor) => searchWikimedia(query, cursor) },
         { id: 'prelinger', load: (cursor) => searchPrelinger(query, cursor) },
         { id: 'nasa', load: (cursor) => searchNASA(query, cursor) },
@@ -674,10 +699,16 @@ async function search(query) {
   state.searchSession = session;
   elements.searchResults.replaceChildren();
   elements.searchMessage.hidden = false;
-  elements.searchMessage.textContent = searchScope === 'gifs' ? 'Searching actual GIFs…' : 'Searching source clips and images…';
+  const searchingMessages = { gifs: 'Searching actual GIFs…', stickers: 'Searching stickers…', source: 'Searching source clips and images…' };
+  elements.searchMessage.textContent = searchingMessages[searchScope] || 'Searching…';
   elements.searchTitle.textContent = `“${query}”`;
   elements.searchSentinel.hidden = true;
   elements.searchSentinel.textContent = '';
+
+  if (!loaders.length) {
+    elements.searchMessage.textContent = 'Sticker search needs a configured GIPHY key.';
+    return;
+  }
 
   await loadMoreSearchResults(session);
   if (searchSessionIsActive(session)) scrollToElement(elements.searchPanel);
@@ -866,8 +897,9 @@ async function searchNASA(query, cursor = '') {
 	};
 }
 
-async function searchGiphy(query, apiKey, cursor = '') {
-	const url = new URL('https://api.giphy.com/v1/gifs/search');
+async function searchGiphy(query, apiKey, cursor = '', contentType = 'gifs') {
+	const stickers = contentType === 'stickers';
+	const url = new URL(`https://api.giphy.com/v1/${stickers ? 'stickers' : 'gifs'}/search`);
 	const offset = Math.max(0, Number.parseInt(cursor || '0', 10) || 0);
 	url.search = new URLSearchParams({ api_key: apiKey, q: query, limit: '24', offset: String(offset), rating: 'pg-13', lang: 'en', bundle: 'messaging_non_clips' });
 	const response = await fetch(url);
@@ -877,8 +909,8 @@ async function searchGiphy(query, apiKey, cursor = '') {
 	const nextOffset = offset + count;
 	const total = Number(payload.pagination?.total_count) || nextOffset;
 	return {
-		id: 'giphy',
-		label: 'GIPHY',
+		id: stickers ? 'giphy-stickers' : 'giphy',
+		label: stickers ? 'GIPHY Stickers' : 'GIPHY',
 		credit: 'POWERED BY GIPHY',
 		cursor: count > 0 && nextOffset < total ? String(nextOffset) : '',
 		items: payload.data.map((item) => {
@@ -887,7 +919,7 @@ async function searchGiphy(query, apiKey, cursor = '') {
 			return {
 				provider: 'giphy',
 				externalID: item.id,
-				kind: 'gif',
+				kind: stickers ? 'sticker' : 'gif',
 				href: item.url || item.images.original.url,
 				preview: gifURL,
 				previewFallbacks: [item.images.fixed_width_small?.url, item.images.original?.url, `https://i.giphy.com/${item.id}.gif`].filter(Boolean),
@@ -938,19 +970,19 @@ function searchCard(item) {
 		else image.classList.add('failed');
 	});
 	image.src = imageSources[0] || '';
-	if (item.kind === 'gif') image.setAttribute('aria-label', `${item.title}. Animated GIF; touch and hold to copy.`);
+	if (item.kind === 'gif' || item.kind === 'sticker') image.setAttribute('aria-label', `${item.title}. Animated ${item.kind}; touch and hold to copy.`);
 	media.append(image);
 	card.append(media);
 	const details = document.createElement('div');
 	details.className = 'search-card-details';
 	const links = document.createElement('div');
 	links.className = 'search-card-links';
-	if (item.kind === 'gif' && (item.mediaURL || item.preview)) {
+	if ((item.kind === 'gif' || item.kind === 'sticker') && (item.mediaURL || item.preview)) {
 		const openGIF = document.createElement('a');
 		openGIF.href = item.mediaURL || item.preview;
 		openGIF.target = '_blank';
 		openGIF.rel = 'noreferrer';
-		openGIF.textContent = 'Open GIF';
+		openGIF.textContent = item.kind === 'sticker' ? 'Open Sticker' : 'Open GIF';
 		links.append(openGIF);
 	}
 	if (item.href) {

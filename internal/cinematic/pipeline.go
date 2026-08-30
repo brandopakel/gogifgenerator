@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"image/draw"
 	stdgif "image/gif"
 	_ "image/jpeg"
@@ -225,6 +226,14 @@ func normalizePNG(data []byte, width, height int) ([]byte, error) {
 }
 
 func compositeSequences(manifest Manifest) error {
+	var reference image.Image
+	if manifest.Paths.ReferenceImage != "" {
+		var err error
+		reference, err = decodeFrame(manifest.Paths.ReferenceImage, manifest.Width, manifest.Height)
+		if err != nil {
+			return fmt.Errorf("cinematic: semantic reference: %w", err)
+		}
+	}
 	for index := range manifest.Frames {
 		beautyPath := filepath.Join(manifest.Paths.UnrealFrames, fmt.Sprintf("frame-%04d.png", index))
 		overlayPath := filepath.Join(manifest.Paths.UnityFrames, fmt.Sprintf("frame-%04d.png", index))
@@ -237,7 +246,12 @@ func compositeSequences(manifest Manifest) error {
 			return fmt.Errorf("cinematic: Unity VFX frame %d: %w", index, err)
 		}
 		composite := image.NewNRGBA(image.Rect(0, 0, manifest.Width, manifest.Height))
-		draw.Draw(composite, composite.Bounds(), beauty, beauty.Bounds().Min, draw.Src)
+		if reference == nil {
+			draw.Draw(composite, composite.Bounds(), beauty, beauty.Bounds().Min, draw.Src)
+		} else {
+			draw.Draw(composite, composite.Bounds(), reference, reference.Bounds().Min, draw.Src)
+			draw.DrawMask(composite, composite.Bounds(), beauty, beauty.Bounds().Min, image.NewUniform(color.Alpha{A: 96}), image.Point{}, draw.Over)
+		}
 		draw.Draw(composite, composite.Bounds(), overlay, overlay.Bounds().Min, draw.Over)
 		if manifest.ShowCaption {
 			render.CaptionImage(composite, manifest.Caption, index, manifest.Frames, "bottom")

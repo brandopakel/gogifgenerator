@@ -18,7 +18,9 @@ This creates macOS, Windows, and Linux server binaries and Chrome, Edge, and Fir
 
 Open <http://localhost:8080>. Use **Edit** to choose a JPEG, PNG, existing GIF, or short video; drag the crop/caption guides or use the keyboard; choose an export preset; then Copy, Share, or Download. Uploaded source bytes are limited to 20 MiB and discarded when the request completes. A draft persists only when you explicitly choose **Save draft**, and stays in that browser's IndexedDB until deleted.
 
-In **Search**, typing automatically refreshes results after a short pause and deleting the entire query clears them. **Actual GIFs** searches GIPHY when `GIPHY_API_KEY` is configured, otherwise it falls back to the archival GifCities catalog. The displayed GIPHY rendition is an animated GIF rather than WebP; touch and hold the image itself or choose **Open GIF**. **Source clips & images** keeps Wikimedia, Prelinger, and NASA research media separate from finished GIF results.
+In **Search**, typing automatically refreshes results after a short pause and deleting the entire query clears them. **Actual GIFs** searches GIPHY when `GIPHY_API_KEY` is configured, otherwise it falls back to the archival GifCities catalog. Scrolling near the end continuously requests the next provider page on desktop and mobile. The displayed GIPHY rendition is an animated GIF rather than WebP; touch and hold the image itself or choose **Open GIF**. **Source clips & images** keeps Wikimedia, Prelinger, and NASA research media separate from finished GIF results.
+
+**Stickers** uses GIPHY's dedicated sticker endpoint and keeps those transparent results separate from ordinary GIFs. It requires the same configured GIPHY platform key.
 
 Photo and GIF editing needs no additional software. Short-video trim is enabled automatically when `ffmpeg` is available on the server Mac's `PATH`; otherwise the app shows the capability as unavailable while every other editor feature keeps working. Install FFmpeg with your preferred package manager, or set `GOGIF_FFMPEG_EXECUTABLE` to its absolute executable path, then restart GoGIF. The selected clip is limited to 15 seconds and temporary video files are deleted after each request.
 
@@ -34,7 +36,7 @@ Web sharing files and installing a reliable Home Screen web app require a secure
 
 Tailscale Serve remains private to the tailnet and terminates HTTPS in front of the loopback GoGIF server. Stop the foreground `tailscale serve` command with Control-C, or inspect/reset persistent configuration with `tailscale serve status` and `tailscale serve reset`.
 
-On iPhone, test choosing media from Photos/Files, dragging the crop guide, saving/loading a draft, and exporting with the Messages preset. After export, press and hold directly on the resulting GIF and try **Copy**, then paste into Messages. Also choose Messages from GoGIF's **Share** button. Safari's native image menu is enabled for the result, but browser/OS clipboard handling can still paste a static image instead of the animated file; Share and Download remain the reliable animated-GIF fallbacks. NASA and Prelinger search videos remain provider-hosted previews and are not silently imported into the editor.
+On iPhone, test choosing media from Photos/Files, dragging the crop guide, saving/loading a draft, and exporting with the Messages preset. After export, press and hold directly on the resulting GIF and try **Copy**, then paste into Messages. Also choose Messages from GoGIF's **Share** button. Safari's native image menu is enabled for the result. When a browser rejects animated GIF clipboard/file sharing, Copy or Share falls back to a same-origin GIF link; zero-config links last for the current server session. Download remains the final reliable fallback. NASA and Prelinger search videos remain provider-hosted previews and are not silently imported into the editor.
 
 ## Test the desktop extension
 

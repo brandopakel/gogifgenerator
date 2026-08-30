@@ -43,6 +43,7 @@ func New(options Options) (cinematic.Stage, error) {
 		Arguments: func(job cinematic.Job) []string {
 			return []string{
 				project, "-unattended", "-nop4", "-nosplash", "-NoSound", "-RenderOffscreen",
+				fmt.Sprintf("-ResX=%d", job.Manifest.Width), fmt.Sprintf("-ResY=%d", job.Manifest.Height), "-ForceRes", "-windowed",
 				"-ExecutePythonScript=" + script, "-gogifManifest=" + job.ManifestPath,
 			}
 		},

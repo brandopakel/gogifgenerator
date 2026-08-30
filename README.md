@@ -21,9 +21,9 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Free NASA image/video search with provider-hosted playback and conservative media-usage restrictions
 - Private photo, existing-GIF, and optional FFmpeg-backed short-video editor with trim, direct crop/caption manipulation, zoom, timing, and loop controls
 - Undo/redo plus explicit IndexedDB drafts that keep source media and settings in the current browser
-- Messages/Discord/Slack export presets, bounded size optimization, animation-quality controls, clipboard copy, download, and native file sharing
+- Messages/Discord/Slack export presets, bounded size optimization, animation-quality controls, clipboard/file-or-link copy fallbacks, download, and native file sharing
 - Allowlisted, size-bounded temporary Wikimedia reference fetching with deletion after each job
-- Optional direct-to-GIPHY search integration with required attribution
+- Optional direct-to-GIPHY GIF and sticker search with required attribution and continuous pagination
 - MemKV-backed asset catalog with an ephemeral zero-config fallback
 - Content-addressed local blob storage for generated media
 - Browser-extension development shell
@@ -49,9 +49,9 @@ For richer procedural art using the Blender already installed on this computer:
 GOGIF_IMAGE_GENERATOR=blender make run
 ```
 
-Blender is not a diffusion model: it creates an original prompt-seeded 3D scene without a model download, account, or network call. For local diffusion and licensed reference remixes, use the ComfyUI setup in [Local generation](docs/LOCAL_GENERATION.md).
+Blender is not a diffusion model: it creates an original prompt-seeded 3D scene without a model download, account, or network call. It cannot understand a character or location from text by itself. For semantic text-to-image generation and licensed reference remixes, use the ComfyUI setup in [Local generation](docs/LOCAL_GENERATION.md).
 
-The multi-engine quality pipeline is implemented behind an explicit opt-in. Blender and FFmpeg are available on the current test Mac; Unity 6.3 and Unreal Engine 5 must be installed and activated before that pipeline can run. GoGIF reports every stage and its availability through `/api/v1/config`, rejects incomplete engine output, and keeps the existing renderer as the default. See [Cinematic pipeline](docs/CINEMATIC_PIPELINE.md).
+The multi-engine quality pipeline is implemented behind an explicit opt-in. The current test Mac has Blender 5.2, Unity 6000.3.23f1, Unreal Engine 5.8.2, FFmpeg 9, Xcode 26.1.1, and Apple's Metal toolchain installed. A real request has passed through every stage and returned `blender+unity-6.3+unreal-5+ffmpeg+local`. GoGIF still keeps the lightweight renderer as the default because this 8-GB Mac is below Unreal's stated minimum memory and a local semantic image model is not configured. See [Cinematic pipeline](docs/CINEMATIC_PIPELINE.md).
 
 ### Keys and accounts
 
@@ -109,7 +109,7 @@ The GIF bytes go to content-addressed blob storage; MemKV holds the searchable r
 | `GET` | `/api/v1/providers/nasa/search?q=...` | Search NASA's image/video library without downloading media |
 | `GET` | `/api/v1/providers/{provider}/items/{id}` | Revalidate an item and resolve its current renditions/captions |
 | `GET` | `/api/v1/providers/{provider}/items/{id}/quote?q=...` | Match a quote against selected-item captions and return its time range |
-| `GET` | `/api/v1/gifs/{id}` | Serve an original GoGIF asset when persistent local storage is enabled |
+| `GET` | `/api/v1/gifs/{id}` | Serve an original GoGIF asset; zero-config links last for the server session and MemKV keeps records across restarts |
 | `POST` | `/api/v1/gifs/plan` | Inspect the prompt-derived animation plan |
 | `POST` | `/api/v1/gifs/generate` | Stream an `image/gif` response |
 | `POST` | `/api/v1/gifs/generate-from-reference` | Revalidate, temporarily fetch, locally transform, then delete an approved provider reference |

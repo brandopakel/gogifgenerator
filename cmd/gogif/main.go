@@ -55,8 +55,6 @@ func main() {
 
 	var catalog store.KV = store.NewMemoryKV()
 	catalogBackend := "memory"
-	var generatedSaver media.GeneratedSaver
-	var generatedReader media.GeneratedReader
 	if settings.MemKVAddress != "" {
 		memkv, err := store.NewMemKV(settings.MemKVAddress)
 		if err != nil {
@@ -71,17 +69,17 @@ func main() {
 			logger.Error("connect to MemKV", "address", settings.MemKVAddress, "error", err)
 			os.Exit(1)
 		}
-		blobs, err := store.NewFileBlobStore(settings.BlobDirectory)
-		if err != nil {
-			logger.Error("configure blob storage", "error", err)
-			os.Exit(1)
-		}
 		catalog = memkv
 		catalogBackend = "memkv"
-		library := media.NewLibrary(media.NewRepository(catalog), blobs)
-		generatedSaver = library
-		generatedReader = library
 	}
+	blobs, err := store.NewFileBlobStore(settings.BlobDirectory)
+	if err != nil {
+		logger.Error("configure blob storage", "error", err)
+		os.Exit(1)
+	}
+	library := media.NewLibrary(media.NewRepository(catalog), blobs)
+	var generatedSaver media.GeneratedSaver = library
+	var generatedReader media.GeneratedReader = library
 	commons, err := wikimedia.New(wikimedia.Options{})
 	if err != nil {
 		logger.Error("configure Wikimedia Commons", "error", err)

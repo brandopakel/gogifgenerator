@@ -28,6 +28,22 @@ def material(name, hue, metallic=0.25, roughness=0.3, saturation=0.72, brightnes
     return value
 
 
+def reference_material(path):
+    image = bpy.data.images.load(path, check_existing=False)
+    value = bpy.data.materials.new("GoGIF_Reference")
+    value.use_nodes = True
+    nodes = value.node_tree.nodes
+    principled = nodes.get("Principled BSDF")
+    texture = nodes.new("ShaderNodeTexImage")
+    texture.image = image
+    texture.interpolation = "Linear"
+    principled.inputs["Metallic"].default_value = 0.0
+    principled.inputs["Roughness"].default_value = 0.48
+    value.node_tree.links.new(texture.outputs["Color"], principled.inputs["Base Color"])
+    value.node_tree.links.new(texture.outputs["Alpha"], principled.inputs["Alpha"])
+    return value
+
+
 def look_at_origin(obj):
     direction = -obj.location
     obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
@@ -73,35 +89,46 @@ def build_scene(manifest):
         light.data.color = colorsys.hsv_to_rgb(hue, 0.55, 1.0)
         look_at_origin(light)
 
-    bpy.ops.mesh.primitive_plane_add(size=24, location=(0, 0, -1.55))
+    bpy.ops.mesh.primitive_plane_add(size=10.5, location=(0, 0, -1.55))
     floor = bpy.context.object
     floor.name = "GoGIF_Floor"
     floor.data.materials.append(material("floor", 0.63, 0.0, 0.62, 0.55, 0.055))
 
-    base_hue = random.random()
-    for index in range(9):
-        angle = (index / 9.0) * math.tau + random.uniform(-0.18, 0.18)
-        radius = random.uniform(1.7, 4.0)
-        location = (math.cos(angle) * radius, math.sin(angle) * radius, random.uniform(-0.4, 1.4))
-        shape = index % 3
-        if shape == 0:
-            bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=3, radius=random.uniform(0.45, 1.0), location=location)
-        elif shape == 1:
-            bpy.ops.mesh.primitive_torus_add(major_radius=random.uniform(0.5, 0.9), minor_radius=random.uniform(0.12, 0.25), location=location)
-        else:
-            bpy.ops.mesh.primitive_cube_add(size=random.uniform(0.65, 1.35), location=location)
-            bpy.context.object.rotation_euler = tuple(random.uniform(-0.7, 0.7) for _ in range(3))
-        obj = bpy.context.object
-        obj.name = "GoGIF_Asset_%02d" % index
-        obj.data.materials.append(material("shape-%d" % index, base_hue + index * 0.097, 0.42, 0.2, 0.78, 0.86))
+    reference_path = paths.get("reference_image", "")
+    has_reference = bool(reference_path and os.path.isfile(reference_path))
+    if has_reference:
+        bpy.ops.mesh.primitive_plane_add(size=9.0, location=(0.0, 0.0, -0.02))
+        reference = bpy.context.object
+        reference.name = "GoGIF_Semantic_Reference"
+        reference.data.materials.append(reference_material(reference_path))
+    else:
+        base_hue = random.random()
+        for index in range(9):
+            angle = (index / 9.0) * math.tau + random.uniform(-0.18, 0.18)
+            radius = random.uniform(1.7, 4.0)
+            location = (math.cos(angle) * radius, math.sin(angle) * radius, random.uniform(-0.4, 1.4))
+            shape = index % 3
+            if shape == 0:
+                bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=3, radius=random.uniform(0.45, 1.0), location=location)
+            elif shape == 1:
+                bpy.ops.mesh.primitive_torus_add(major_radius=random.uniform(0.5, 0.9), minor_radius=random.uniform(0.12, 0.25), location=location)
+            else:
+                bpy.ops.mesh.primitive_cube_add(size=random.uniform(0.65, 1.35), location=location)
+                bpy.context.object.rotation_euler = tuple(random.uniform(-0.7, 0.7) for _ in range(3))
+            obj = bpy.context.object
+            obj.name = "GoGIF_Asset_%02d" % index
+            obj.data.materials.append(material("shape-%d" % index, base_hue + index * 0.097, 0.42, 0.2, 0.78, 0.86))
 
     bpy.ops.render.render(write_still=True)
 
     bpy.ops.object.select_all(action="DESELECT")
-    for obj in scene.objects:
-        if obj.type == "MESH":
-            obj.select_set(True)
-    bpy.context.view_layer.objects.active = floor
+    meshes = [obj for obj in scene.objects if obj.type == "MESH"]
+    for obj in meshes:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = meshes[0]
+    if len(meshes) > 1:
+        bpy.ops.object.join()
+    bpy.context.object.name = "GoGIF_Combined_Asset"
     bpy.ops.export_scene.fbx(
         filepath=paths["blender_asset"],
         use_selection=True,

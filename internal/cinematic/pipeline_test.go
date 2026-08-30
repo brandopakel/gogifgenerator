@@ -90,6 +90,49 @@ func TestPipelineRejectsMissingEngineFrames(t *testing.T) {
 	}
 }
 
+func TestCompositeSequencesPreservesReferenceAndUnrealBeauty(t *testing.T) {
+	workspace := t.TempDir()
+	manifest := Manifest{
+		Width: 4, Height: 4, Frames: 1,
+		Paths: ManifestPaths{
+			ReferenceImage:  filepath.Join(workspace, "reference.png"),
+			UnrealFrames:    filepath.Join(workspace, "unreal"),
+			UnityFrames:     filepath.Join(workspace, "unity"),
+			CompositeFrames: filepath.Join(workspace, "composite"),
+		},
+	}
+	for _, directory := range []string{manifest.Paths.UnrealFrames, manifest.Paths.UnityFrames, manifest.Paths.CompositeFrames} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writeSolidPNG(manifest.Paths.ReferenceImage, 4, 4, color.NRGBA{R: 255, A: 255}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSolidPNG(filepath.Join(manifest.Paths.UnrealFrames, "frame-0000.png"), 4, 4, color.NRGBA{B: 255, A: 255}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSolidPNG(filepath.Join(manifest.Paths.UnityFrames, "frame-0000.png"), 4, 4, color.NRGBA{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := compositeSequences(manifest); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(filepath.Join(manifest.Paths.CompositeFrames, "frame-0000.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame, decodeErr := png.Decode(file)
+	closeErr := file.Close()
+	if decodeErr != nil || closeErr != nil {
+		t.Fatalf("decode composite: %v; close: %v", decodeErr, closeErr)
+	}
+	red, _, blue, _ := frame.At(2, 2).RGBA()
+	if red == 0 || blue == 0 {
+		t.Fatalf("composite pixel = %#v; reference or Unreal beauty was discarded", frame.At(2, 2))
+	}
+}
+
 func TestNewRejectsDuplicateStageIDs(t *testing.T) {
 	stage := fakeStage{descriptor: StageDescriptor{ID: "same", Label: "Same", Role: "test"}}
 	if _, err := New(PipelineOptions{Stages: []Stage{stage, stage}, Encoder: fakeEncoder{}}); err == nil {

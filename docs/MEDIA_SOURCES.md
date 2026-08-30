@@ -1,6 +1,6 @@
 # Media sources and connector policy
 
-Reviewed: 2026-08-29. Provider terms and APIs change; re-review before each production integration and at least quarterly thereafter.
+Reviewed: 2026-08-30. Provider terms and APIs change; re-review before each production integration and at least quarterly thereafter.
 
 ## The practical answer
 
@@ -18,6 +18,7 @@ Movie and television clips are usually copyrighted. Search availability does not
 | Source | Role in GoGIF | Important constraints | Storage rule |
 | --- | --- | --- | --- |
 | [GIPHY GIF search](https://developers.giphy.com/docs/api/endpoint/search/) | Primary broad GIF/sticker discovery | Preserve ranking and attribution. GIPHY's [API terms](https://support.giphy.com/hc/en-us/articles/360028134111-GIPHY-API-Terms-of-Service) restrict combining its results with other providers without approval. | Store provider ID, query telemetry, and permitted cache data only; render media from returned URLs. |
+| [GIPHY Sticker search](https://developers.giphy.com/docs/api/endpoint/search/) | Dedicated transparent sticker discovery | Use the `/v1/stickers/search` endpoint, preserve provider ranking and attribution, and keep the result section separate. | Client-side requests with the configured GIPHY platform key; provider-hosted media only. |
 | [GIPHY Clips](https://developers.giphy.com/docs/clips/) | Short clips with sound from official partners | Clip endpoints require prior approval. Use a separate source section and platform key. | Provider-hosted; never copied into the GoGIF catalog. |
 | [KLIPY](https://docs.klipy.com/) | GIFs, stickers, memes, and clips; useful second provider | Its standard integration says to request media client-side, preserve ranking, display attribution, keep results separate, and not store/mirror/rehost without written approval. | Provider-hosted only under standard terms. |
 | [GifCities](https://gifcities.org/about) | Search more than 4.5 million GIFs extracted from the archived GeoCities crawl | The implemented adapter uses Internet Archive's documented JSON search endpoint. Search results contain no per-file license, author, or permission grant, so permissions remain unknown and remixing stays disabled. | Provider-hosted on GifCities; store only short-lived normalized search metadata. |
@@ -30,6 +31,22 @@ Movie and television clips are usually copyrighted. Search availability does not
 | Yarn/GetYarn | Product inspiration and possible commercial partner | No public developer API or reusable-content license was located in the 2026-08-29 review. Do not scrape it. | No connector until Yarn grants explicit API access in writing. |
 
 Tenor is excluded from a new integration because its API was decommissioned for new use in 2026. Keep its provider slot absent rather than building against a retired dependency.
+
+## Sticker, emoji, and emote connectors
+
+GIPHY and KLIPY are the practical broad searchable sticker catalogs. Twitch, Discord, Slack, Telegram, and similar services expose account-, channel-, guild-, or pack-scoped assets rather than one public universal sticker index:
+
+| Connector | What its official API exposes | Product treatment |
+| --- | --- | --- |
+| [Discord stickers](https://docs.discord.com/developers/resources/sticker) | Standard sticker packs and stickers belonging to a guild; PNG/APNG/Lottie/GIF formats vary by sticker | Connected Discord account/guild source, not global search |
+| [Twitch emotes](https://dev.twitch.tv/docs/api/reference#get-global-emotes) | Global, channel, and emote-set endpoints with Twitch authentication requirements | Separate emote section preserving Twitch IDs and rendition templates |
+| [Slack `emoji.list`](https://api.slack.com/methods/emoji.list) | Custom emoji for one authenticated workspace with `emoji:read` | Workspace connector only; never present it as a public repository |
+| [Telegram stickers](https://core.telegram.org/api/stickers) | Sticker-set discovery and retrieval through Telegram's APIs | Connected-account/set workflow, with Telegram attribution and format handling |
+| [LINE stickers](https://developers.line.biz/en/reference/messaging-api/#sticker-message) | Sending known package/sticker IDs; the Messaging API does not provide a general sticker-image repository | Send/link integration only unless LINE grants separate catalog rights |
+| [BetterTTV API](https://betterttv.com/developers/api) | Global and channel emote sets | Optional creator/community emote provider after terms review |
+| [FrankerFaceZ API](https://api.frankerfacez.com/) | Searchable/bulk emote metadata and channel sets | Optional creator/community emote provider after terms review |
+
+Keep each provider in a visibly attributed section. Do not merge platform-scoped emoji or emotes into GIPHY/KLIPY ranking, and do not copy them into GoGIF storage without explicit rights.
 
 ## Search presentation
 

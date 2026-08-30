@@ -14,10 +14,26 @@ func TestEditorShellIncludesAccessibleMilestoneOneControls(t *testing.T) {
 	page := string(data)
 	for _, marker := range []string{
 		`id="copy-button"`, `id="undo-button"`, `id="redo-button"`, `id="save-draft-button"`,
-		`id="trim-start-control"`, `id="target-size-control"`, `id="search-scope"`, `role="slider"`, `aria-live="assertive"`,
+		`id="trim-start-control"`, `id="target-size-control"`, `id="search-scope"`, `<option value="stickers">Stickers</option>`, `role="slider"`, `aria-live="assertive"`,
 	} {
 		if !strings.Contains(page, marker) {
 			t.Fatalf("index.html does not contain %q", marker)
+		}
+	}
+}
+
+func TestStickerSearchUsesDedicatedGIPHYEndpoint(t *testing.T) {
+	data, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	for _, marker := range []string{
+		"searchScope === 'stickers'", "searchGiphy(query, apiKey, cursor, 'stickers')", "'giphy-stickers'", "GIPHY Stickers",
+		"stickers ? 'stickers' : 'gifs'",
+	} {
+		if !strings.Contains(script, marker) {
+			t.Fatalf("app.js does not contain %q", marker)
 		}
 	}
 }
@@ -29,9 +45,9 @@ func TestSearchUsesActualGIFsAndReactiveInput(t *testing.T) {
 	}
 	script := string(data)
 	for _, marker := range []string{
-		"preview.url || item.images.original.url", "media.append(image)", "openGIF.textContent = 'Open GIF'",
+		"preview.url || item.images.original.url", "media.append(image)", "item.kind === 'sticker' ? 'Open Sticker' : 'Open GIF'",
 		"function queueSearch()", "function clearSearchResults()", "if (state.mode === 'search') queueSearch()",
-		"function loadMoreSearchResults", "new IntersectionObserver", "offset: String(offset)", "payload.cursor || ''",
+		"function loadMoreSearchResults", "new IntersectionObserver", "offset: String(offset)", "payload.cursor || ''", "clearTimeout(searchContinuationTimer)",
 	} {
 		if !strings.Contains(script, marker) {
 			t.Fatalf("app.js does not contain %q", marker)
@@ -88,6 +104,22 @@ func TestReferenceRemixRecognizesEnabledQualityPipeline(t *testing.T) {
 	}
 	script := string(data)
 	for _, marker := range []string{"quality_pipeline?.enabled", "quality_pipeline?.supports_references"} {
+		if !strings.Contains(script, marker) {
+			t.Fatalf("app.js does not contain %q", marker)
+		}
+	}
+}
+
+func TestResultActionsFallBackToShareableGIFLink(t *testing.T) {
+	data, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	for _, marker := range []string{
+		"response.headers.get('Location')", "function copyResultLink()", "navigator.clipboard.writeText(state.resultURL)",
+		"a shareable GIF link was copied", "its GIF link was copied",
+	} {
 		if !strings.Contains(script, marker) {
 			t.Fatalf("app.js does not contain %q", marker)
 		}

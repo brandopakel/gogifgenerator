@@ -12,6 +12,7 @@
 - NASA image/video search with conservative usage-policy metadata
 - Optional GIPHY search path
 - Provider-aware continuous search loading on desktop and mobile
+- Dedicated GIPHY sticker search with transparent-media results kept separate from GIF and source-media feeds
 - Extension development shell
 - Tests and CI
 
@@ -22,7 +23,7 @@ Exit condition: a new contributor can clone, run, create, download, and test wit
 - Upload a photo, existing GIF, or bounded short video (implemented; video decoding is enabled when local FFmpeg is available)
 - Caption editing, drag/keyboard positioning, crop focus, zoom, video trim, timing, and loop controls (implemented)
 - Undo/redo and explicit browser-local IndexedDB drafts (implemented)
-- Clipboard, download, native file share sheet, and Messages/Discord/Slack export presets (implemented)
+- Clipboard GIF/link fallback, session-hosted share links, download, native file share sheet, and Messages/Discord/Slack export presets (implemented)
 - Iterative GIF optimization with bounded size and animation-quality targets (implemented)
 - Keyboard operation, focus visibility, live status, semantic labels, touch targets, and reduced-motion behavior (reviewed and covered)
 
@@ -63,7 +64,7 @@ Exit condition: the same account, projects, and generation API work across suppo
 ## Milestone 5 — high-powered engine
 
 - Asynchronous render jobs and progress events
-- Composable render-stage contract and local runners: diffusion/reference imagery, Blender FBX geometry, Unity 6.3 portable motion/VFX, Unreal Engine 5 cinematic beauty frames, Go pass compositing, and FFmpeg adaptive-palette encoding (implemented; Unity/Unreal hardware validation remains)
+- Composable render-stage contract and local runners: diffusion/reference imagery, textured Blender FBX geometry, Unity 6.3 portable motion/VFX, Unreal Engine 5 cinematic beauty frames, semantic-preserving Go pass compositing, and FFmpeg adaptive-palette encoding (implemented and functionally validated on macOS; production-class hardware validation remains)
 - Capability-based engine selection and reproducible intermediate assets; do not combine independently rendered frames without an explicit compositing contract
 - Reproducible projects and local storage lifecycle policies
 - Optional object storage/CDN only for a funded hosted service
