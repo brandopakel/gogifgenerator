@@ -82,6 +82,9 @@ func TestSearchNormalizesResultsAndRights(t *testing.T) {
 	if result.CommercialUse != media.PermissionAllowed || result.Derivatives != media.PermissionAllowed || !result.ShareAlike || result.TransformPolicy != provider.TransformAllowed {
 		t.Fatalf("rights = %#v", result)
 	}
+	if len(result.Renditions) != 2 || len(result.AllowedHandling) != 3 || result.AllowedHandling[2] != provider.HandlingTemporaryTransform {
+		t.Fatalf("media handling = %#v; renditions = %#v", result.AllowedHandling, result.Renditions)
+	}
 	if len(result.Restrictions) != 2 {
 		t.Fatalf("restrictions = %#v", result.Restrictions)
 	}

@@ -20,7 +20,7 @@ The input and result surfaces are shared. The systems behind them are deliberate
 | `internal/render` | Animation spec → encoded asset | Pure-Go indexed-color GIF renderer |
 | `internal/media` | Asset, rendition, provenance, and rights catalog | Validated JSON records persisted through the KV boundary |
 | `internal/store` | Metadata and binary persistence seams | MemKV RESP adapter, memory KV, content-addressed filesystem blobs |
-| `internal/provider` | Federated discovery and rights normalization | Cached provider contract and Wikimedia Commons adapter |
+| `internal/provider` | Federated discovery and rights normalization | Clip-capable cached provider contract plus Wikimedia Commons and GifCities adapters |
 | `internal/httpapi` | Public client contract | Standard-library HTTP server and embedded PWA |
 | `webapp` | Universal interaction surface | Responsive PWA with sectioned provider search |
 | `apps/extension` | Browser toolbar surface | Local-development MV3 client |
@@ -48,7 +48,7 @@ Never send the OpenAI key to a client. In a multi-user deployment, add authentic
 
 ## Search
 
-Search is a federation problem, not a web-crawling problem. The Go API currently exposes Wikimedia Commons through a normalized adapter, caches repeat queries for fifteen minutes, and links to provider-hosted media rather than mirroring it. Each provider adapter must own:
+Search is a federation problem, not a web-crawling problem. The Go API currently exposes Wikimedia Commons and GifCities through normalized adapters, caches repeat queries for fifteen minutes, and links to provider-hosted media rather than mirroring it. GifCities results intentionally retain unknown commercial/derivative permissions because its search response does not provide per-file license metadata. Each provider adapter must own:
 
 - terms and attribution compliance;
 - platform-specific credentials;
@@ -56,6 +56,8 @@ Search is a federation problem, not a web-crawling problem. The Go API currently
 - safety-rating mapping;
 - share/view analytics required by the provider;
 - pagination, caching, and rate-limit behavior.
+
+The normalized contract can represent images, GIFs, clips, and videos. Clip results may include multiple renditions, duration, audio availability, caption tracks, quote-match time ranges, and allowed handling modes. These fields describe provider media; they do not grant additional usage rights.
 
 GIPHY currently requires calls to be made from the client. When explicitly configured, the PWA receives a GIPHY platform key through public runtime configuration and shows those results in a separate, attributed section. Private-library search will use the Go API.
 

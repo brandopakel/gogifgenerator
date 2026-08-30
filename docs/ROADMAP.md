@@ -6,6 +6,7 @@
 - Offline and AI-directed planning
 - Responsive installable PWA
 - Wikimedia Commons search through the Go provider API
+- GifCities search through the Go provider API
 - Optional GIPHY search path
 - Extension development shell
 - Tests and CI

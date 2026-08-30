@@ -32,6 +32,48 @@ const (
 	TransformReference TransformPolicy = "reference-only"
 )
 
+// HandlingMode records what GoGIF may do with provider-hosted media. Providers
+// can allow more than one mode. Displaying a remote rendition is deliberately
+// separate from fetching it into a transformation job.
+type HandlingMode string
+
+const (
+	HandlingLink               HandlingMode = "link"
+	HandlingDisplay            HandlingMode = "display"
+	HandlingTemporaryTransform HandlingMode = "temporary-transform"
+)
+
+// Rendition describes one provider-hosted representation of a result. URL is
+// external unless the result represents content created and managed by GoGIF.
+type Rendition struct {
+	Name        string `json:"name"`
+	Format      string `json:"format,omitempty"`
+	ContentType string `json:"content_type"`
+	URL         string `json:"url"`
+	Width       int    `json:"width,omitempty"`
+	Height      int    `json:"height,omitempty"`
+	DurationMS  int64  `json:"duration_ms,omitempty"`
+	SizeBytes   int64  `json:"size_bytes,omitempty"`
+	HasAudio    bool   `json:"has_audio,omitempty"`
+}
+
+// CaptionTrack is a provider-hosted subtitle or transcript rendition.
+type CaptionTrack struct {
+	Language string `json:"language"`
+	Format   string `json:"format"`
+	URL      string `json:"url"`
+}
+
+// QuoteMatch identifies the time range matched by a quote-oriented provider.
+// Confidence is in the inclusive range 0..1 when the provider supplies it.
+type QuoteMatch struct {
+	Text       string  `json:"text"`
+	StartMS    int64   `json:"start_ms,omitempty"`
+	EndMS      int64   `json:"end_ms,omitempty"`
+	Exact      bool    `json:"exact,omitempty"`
+	Confidence float64 `json:"confidence,omitempty"`
+}
+
 type Query struct {
 	Text   string `json:"text"`
 	Limit  int    `json:"limit"`
@@ -78,7 +120,13 @@ type Result struct {
 	ContentType     string           `json:"content_type"`
 	Width           int              `json:"width,omitempty"`
 	Height          int              `json:"height,omitempty"`
+	DurationMS      int64            `json:"duration_ms,omitempty"`
 	SizeBytes       int64            `json:"size_bytes,omitempty"`
+	HasAudio        bool             `json:"has_audio,omitempty"`
+	Renditions      []Rendition      `json:"renditions,omitempty"`
+	Captions        []CaptionTrack   `json:"captions,omitempty"`
+	QuoteMatch      *QuoteMatch      `json:"quote_match,omitempty"`
+	AllowedHandling []HandlingMode   `json:"allowed_handling,omitempty"`
 	Author          string           `json:"author,omitempty"`
 	Attribution     string           `json:"attribution,omitempty"`
 	LicenseID       string           `json:"license_id,omitempty"`

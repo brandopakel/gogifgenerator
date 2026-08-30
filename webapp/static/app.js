@@ -134,7 +134,7 @@ async function search(query) {
   elements.searchMessage.textContent = 'Searching open media…';
   elements.searchTitle.textContent = `“${query}”`;
 
-	const searches = [searchWikimedia(query)];
+	const searches = [searchWikimedia(query), searchGifCities(query)];
   const apiKey = state.config?.giphy_api_key;
 	if (apiKey) searches.push(searchGiphy(query, apiKey));
 
@@ -176,6 +176,28 @@ async function searchWikimedia(query) {
 			preview: item.preview_url,
 			title: item.title || query,
 			note: [item.author, item.license_name].filter(Boolean).join(' · '),
+			transformPolicy: item.transform_policy,
+			derivatives: item.derivatives,
+		})),
+	};
+}
+
+async function searchGifCities(query) {
+	const url = new URL('/api/v1/providers/gifcities/search', window.location.origin);
+	url.search = new URLSearchParams({ q: query, limit: '18', locale: 'en' });
+	const response = await fetch(url);
+	const payload = await response.json().catch(() => ({}));
+	if (!response.ok) throw new Error(payload.error?.message || 'GifCities search failed.');
+	return {
+		label: 'GifCities',
+		credit: 'INTERNET ARCHIVE · ARCHIVED GEOCITIES',
+		items: payload.results.map((item) => ({
+			provider: item.provider,
+			externalID: item.external_id,
+			href: item.source_url,
+			preview: item.preview_url,
+			title: item.title || query,
+			note: 'Archived source · rights not supplied',
 			transformPolicy: item.transform_policy,
 			derivatives: item.derivatives,
 		})),

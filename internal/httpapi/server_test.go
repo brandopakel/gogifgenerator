@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
@@ -28,6 +29,18 @@ func TestHealth(t *testing.T) {
 	New(Options{Planner: planner.Local{}}).ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d", response.Code)
+	}
+}
+
+func TestSecurityPolicyAllowsConfiguredCatalogMedia(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}}).ServeHTTP(response, request)
+	policy := response.Header().Get("Content-Security-Policy")
+	for _, host := range []string{"https://upload.wikimedia.org", "https://blob.gifcities.org"} {
+		if !strings.Contains(policy, host) {
+			t.Fatalf("Content-Security-Policy does not allow %s: %q", host, policy)
+		}
 	}
 }
 

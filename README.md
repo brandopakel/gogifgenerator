@@ -2,7 +2,7 @@
 
 **One prompt. The right GIF—made or found.**
 
-GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at home in a browser, an installed phone/desktop PWA, and a browser extension. The current repository is a working vertical slice: enter an idea, receive a real animated GIF, download it, or search Wikimedia Commons with no account or API key.
+GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at home in a browser, an installed phone/desktop PWA, and a browser extension. The current repository is a working vertical slice: enter an idea, receive a real animated GIF, download it, or search Wikimedia Commons and GifCities with no account or API key.
 
 ## What works now
 
@@ -14,6 +14,7 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Automatic local fallback if the AI provider is unavailable
 - Responsive, installable PWA embedded in the Go binary
 - Free Wikimedia Commons search through a normalized, rights-aware provider adapter
+- Free GifCities search across Internet Archive's archived GeoCities GIF index
 - Allowlisted, size-bounded temporary Wikimedia reference fetching with deletion after each job
 - Optional direct-to-GIPHY search integration with required attribution
 - MemKV-backed asset catalog with an ephemeral zero-config fallback
@@ -48,7 +49,7 @@ Blender is not a diffusion model: it creates an original prompt-seeded 3D scene 
 | Capability | Key needed? | Cost behavior |
 | --- | --- | --- |
 | Go renderer, Blender, local ComfyUI, MemKV | No | Runs on hardware you own |
-| Wikimedia Commons search/reference | No | Source media remains provider-hosted; normal bandwidth only |
+| Wikimedia Commons and GifCities search | No | Source media remains provider-hosted; normal bandwidth only |
 | Public ungated model checkpoint | Usually no | License and hardware requirements are model-specific |
 | GIPHY search | Yes, `GIPHY_API_KEY` | Optional provider integration |
 | OpenAI art-direction planner | Yes, `OPENAI_API_KEY` plus `GOGIF_ENABLE_PAID_AI=true` | Paid opt-in; never part of zero-spend mode |
@@ -93,6 +94,7 @@ The GIF bytes go to content-addressed blob storage; MemKV holds the searchable r
 | `GET` | `/api/health` | Readiness and engine status |
 | `GET` | `/api/v1/config` | Public client capabilities |
 | `GET` | `/api/v1/providers/wikimedia/search?q=...` | Search Wikimedia Commons with normalized rights metadata |
+| `GET` | `/api/v1/providers/gifcities/search?q=...` | Search GifCities and return source-linked archived GIFs |
 | `GET` | `/api/v1/gifs/{id}` | Serve an original GoGIF asset when persistent local storage is enabled |
 | `POST` | `/api/v1/gifs/plan` | Inspect the prompt-derived animation plan |
 | `POST` | `/api/v1/gifs/generate` | Stream an `image/gif` response |
@@ -115,7 +117,7 @@ The first release is intentionally a modular monolith:
 phone / desktop PWA ─┐
 browser extension ───┼──> Go HTTP API ──┬─> local planner
 web browser ─────────┘                   ├─> Go / Blender / ComfyUI ──> animated GIF
-                                        └─> provider adapters ──> Wikimedia Commons
+                                        └─> provider adapters ──> Wikimedia Commons / GifCities
 ```
 
 The planner speaks a small, validated animation-spec contract. That keeps model vendors, renderers, and future native clients replaceable. The OpenAI adapter uses the Responses API with Structured Outputs, following the [official OpenAI API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).

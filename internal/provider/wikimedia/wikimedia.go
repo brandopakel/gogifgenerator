@@ -204,6 +204,8 @@ type imageInfo struct {
 	URL         string                   `json:"url"`
 	Description string                   `json:"descriptionurl"`
 	ThumbURL    string                   `json:"thumburl"`
+	ThumbWidth  int                      `json:"thumbwidth"`
+	ThumbHeight int                      `json:"thumbheight"`
 	MIME        string                   `json:"mime"`
 	ThumbMIME   string                   `json:"thumbmime"`
 	MediaType   string                   `json:"mediatype"`
@@ -265,6 +267,20 @@ func normalize(item apiPage) (provider.Result, bool) {
 	if kind != media.KindImage && kind != media.KindGIF {
 		transformPolicy = provider.TransformReview
 	}
+	allowedHandling := []provider.HandlingMode{provider.HandlingLink, provider.HandlingDisplay}
+	if transformPolicy == provider.TransformAllowed && derivatives == media.PermissionAllowed {
+		allowedHandling = append(allowedHandling, provider.HandlingTemporaryTransform)
+	}
+	renditions := []provider.Rendition{{
+		Name: "original", Format: formatForMIME(info.MIME), ContentType: info.MIME,
+		URL: info.URL, Width: info.Width, Height: info.Height, SizeBytes: info.Size,
+	}}
+	if preview != info.URL {
+		renditions = append([]provider.Rendition{{
+			Name: "preview", Format: formatForMIME(previewMIME), ContentType: previewMIME,
+			URL: preview, Width: info.ThumbWidth, Height: info.ThumbHeight,
+		}}, renditions...)
+	}
 
 	return provider.Result{
 		Provider:        "wikimedia",
@@ -280,6 +296,8 @@ func normalize(item apiPage) (provider.Result, bool) {
 		Width:           info.Width,
 		Height:          info.Height,
 		SizeBytes:       info.Size,
+		Renditions:      renditions,
+		AllowedHandling: allowedHandling,
 		Author:          author,
 		Attribution:     attribution,
 		LicenseID:       licenseID,
@@ -291,6 +309,13 @@ func normalize(item apiPage) (provider.Result, bool) {
 		ShareAlike:      shareAlike,
 		TransformPolicy: transformPolicy,
 	}, true
+}
+
+func formatForMIME(value string) string {
+	if _, format, ok := strings.Cut(strings.ToLower(strings.TrimSpace(value)), "/"); ok {
+		return format
+	}
+	return ""
 }
 
 func supportedReferenceMIME(value string) bool {

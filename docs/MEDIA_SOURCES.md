@@ -20,6 +20,7 @@ Movie and television clips are usually copyrighted. Search availability does not
 | [GIPHY GIF search](https://developers.giphy.com/docs/api/endpoint/search/) | Primary broad GIF/sticker discovery | Preserve ranking and attribution. GIPHY's [API terms](https://support.giphy.com/hc/en-us/articles/360028134111-GIPHY-API-Terms-of-Service) restrict combining its results with other providers without approval. | Store provider ID, query telemetry, and permitted cache data only; render media from returned URLs. |
 | [GIPHY Clips](https://developers.giphy.com/docs/clips/) | Short clips with sound from official partners | Clip endpoints require prior approval. Use a separate source section and platform key. | Provider-hosted; never copied into the GoGIF catalog. |
 | [KLIPY](https://docs.klipy.com/) | GIFs, stickers, memes, and clips; useful second provider | Its standard integration says to request media client-side, preserve ranking, display attribution, keep results separate, and not store/mirror/rehost without written approval. | Provider-hosted only under standard terms. |
+| [GifCities](https://gifcities.org/about) | Search more than 4.5 million GIFs extracted from the archived GeoCities crawl | The implemented adapter uses Internet Archive's documented JSON search endpoint. Search results contain no per-file license, author, or permission grant, so permissions remain unknown and remixing stays disabled. | Provider-hosted on GifCities; store only short-lived normalized search metadata. |
 | [Wikimedia Commons](https://commons.wikimedia.org/wiki/Commons:Simple_media_reuse_guide) | Best large seed corpus for reusable image/audio/video media | More than 146 million freely licensed/public-domain files were listed in June 2026, but the license and attribution are per file. Share-alike terms may follow derivatives. Fetch license metadata with [MediaWiki imageinfo](https://www.mediawiki.org/wiki/API:Imageinfo/en). | Provider-hosted. A selected, transformable item may be fetched temporarily; retain only provenance and the new output. |
 | [Internet Archive moving images](https://archivesupport.zendesk.com/hc/en-us/articles/360017808151-Movies-and-Videos-A-Basic-Guide) | Huge archival video source, especially verified collections such as Prelinger | Internet Archive [does not guarantee rights](https://archivesupport.zendesk.com/hc/en-us/articles/360014759692-Rights); rights are item-specific. | Link to provider media. Allowlist collections and verify rights before any temporary transformation fetch. |
 | [NASA Image and Video Library](https://images.nasa.gov/) | High-quality space/science media with rich metadata | NASA material is generally reusable in the US, but [usage rules](https://www.nasa.gov/nasa-brand-center/images-and-media/) still cover third-party material, logos, identifiable people, endorsement, and attribution. | Provider-hosted. Preserve credit and restrictions on newly generated derivatives. |
@@ -63,9 +64,10 @@ Unknown rights are represented as `unknown`, never as permission.
 
 ## First provider sequence
 
-1. Use the implemented Wikimedia Commons adapter for free, source-linked discovery.
-2. Add controlled, temporary fetch-on-selection only for items whose recorded rights allow derivatives; discard source bytes after generation.
-3. Add allowlisted Internet Archive/Prelinger and NASA adapters without mirroring their archives.
-4. Keep GIPHY optional and sectioned when a platform key is explicitly configured.
-5. Add Pixabay/Pexels only as user-directed editor inputs after a terms review.
-6. Contact Yarn about an API/content partnership; do not scrape it or block the MVP on it.
+1. Use the implemented Wikimedia Commons and GifCities adapters for free, source-linked discovery.
+2. Keep GifCities display-only unless rights for an individual file are independently established.
+3. Use controlled, temporary fetch-on-selection only for Wikimedia items whose recorded rights allow derivatives; discard source bytes after generation.
+4. Add allowlisted Internet Archive/Prelinger and NASA adapters without mirroring their archives.
+5. Keep GIPHY optional when a platform key is explicitly configured.
+6. Add Pixabay/Pexels only as user-directed editor inputs after a terms review.
+7. Contact Yarn about an API/content partnership; do not scrape it or block the MVP on it.
