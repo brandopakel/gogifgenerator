@@ -1,7 +1,7 @@
 .PHONY: run test check build
 
 run:
-	go run ./cmd/gogif
+	@set -a; if [ -f .env ]; then . ./.env; fi; set +a; exec go run ./cmd/gogif
 
 test:
 	go test ./...
