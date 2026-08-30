@@ -11,6 +11,7 @@
 - Local selected-item WebVTT/SRT quote matching and timed preview
 - NASA image/video search with conservative usage-policy metadata
 - Optional GIPHY search path
+- Provider-aware continuous search loading on desktop and mobile
 - Extension development shell
 - Tests and CI
 
@@ -62,6 +63,8 @@ Exit condition: the same account, projects, and generation API work across suppo
 ## Milestone 5 — high-powered engine
 
 - Asynchronous render jobs and progress events
+- Composable render stages: diffusion/reference imagery for semantic realism, Blender for geometry/assets, Unity 6 LTS for real-time animation/camera/VFX, and Go/FFmpeg for final timing and encoding
+- Capability-based engine selection and reproducible intermediate assets; do not combine independently rendered frames without an explicit compositing contract
 - Reproducible projects and local storage lifecycle policies
 - Optional object storage/CDN only for a funded hosted service
 - Isolated CPU/GPU worker pools and renderer capability negotiation

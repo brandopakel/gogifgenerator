@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#111318">
     <meta name="description" content="Create and find the right GIF in seconds.">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="GoGIF">
     <link rel="manifest" href="/manifest.webmanifest">
@@ -21,30 +22,27 @@
         <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
         <span>GoGIF</span>
       </a>
-      <div class="top-actions">
-        <span id="engine-badge" class="engine-badge"><span></span> Local engine</span>
-        <button id="install-button" class="quiet-button" type="button" hidden>Install</button>
-      </div>
+      <button id="install-button" class="quiet-button" type="button" hidden>Install</button>
     </header>
 
     <main>
-      <section class="hero" aria-labelledby="hero-title">
-        <h1 id="hero-title">Make a moment<br><em>move.</em></h1>
+      <section class="hero" aria-label="Create, edit, or search for a GIF">
+        <div class="command-row">
+          <div class="mode-switch" role="tablist" aria-label="Choose a GIF action">
+            <button id="create-tab" class="mode active" data-mode="create" role="tab" aria-controls="create-panel" aria-selected="true" type="button">Create</button>
+            <button id="edit-tab" class="mode" data-mode="edit" role="tab" aria-controls="create-panel" aria-selected="false" type="button">Edit</button>
+            <button id="search-tab" class="mode" data-mode="search" role="tab" aria-controls="search-panel" aria-selected="false" type="button">Search</button>
+          </div>
 
-        <div class="mode-switch" role="tablist" aria-label="Choose a GIF action">
-          <button id="create-tab" class="mode active" data-mode="create" role="tab" aria-controls="create-panel" aria-selected="true" type="button">Create</button>
-          <button id="edit-tab" class="mode" data-mode="edit" role="tab" aria-controls="create-panel" aria-selected="false" type="button">Edit</button>
-          <button id="search-tab" class="mode" data-mode="search" role="tab" aria-controls="search-panel" aria-selected="false" type="button">Search</button>
+          <form id="prompt-form" class="prompt-form">
+            <label class="sr-only" for="prompt">Describe or search for a GIF</label>
+            <textarea id="prompt" name="prompt" rows="1" maxlength="500" placeholder="Describe a GIF…" required></textarea>
+            <button id="submit-button" class="go-button" type="submit" aria-label="Create GIF">
+              <span id="submit-label">Make it</span>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 14 0m-6-6 6 6-6 6"/></svg>
+            </button>
+          </form>
         </div>
-
-        <form id="prompt-form" class="prompt-form">
-          <label class="sr-only" for="prompt">Describe or search for a GIF</label>
-          <textarea id="prompt" name="prompt" rows="1" maxlength="500" placeholder="A tiny victory dance after shipping..." required></textarea>
-          <button id="submit-button" class="go-button" type="submit" aria-label="Create GIF">
-            <span id="submit-label">Make it</span>
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 14 0m-6-6 6 6-6 6"/></svg>
-          </button>
-        </form>
         <div id="search-options" class="search-options" hidden>
           <label for="search-scope">Search for</label>
           <select id="search-scope">
@@ -62,11 +60,6 @@
         <div id="reference-chip" class="reference-chip" hidden>
           <span>REMIXING · <strong id="reference-label"></strong></span>
           <button id="reference-clear" type="button">Remove</button>
-        </div>
-        <div class="suggestions" aria-label="Prompt suggestions">
-          <button type="button" data-prompt="Monday loading forever">Monday loading</button>
-          <button type="button" data-prompt="We actually shipped it!">We shipped</button>
-          <button type="button" data-prompt="A chaotic little celebration">Chaotic joy</button>
         </div>
       </section>
 
@@ -194,6 +187,7 @@
         </div>
         <div id="search-message" class="search-message" hidden></div>
         <div id="search-results" class="provider-results"></div>
+        <div id="search-sentinel" class="search-sentinel" role="status" aria-live="polite" hidden></div>
       </section>
     </main>
 

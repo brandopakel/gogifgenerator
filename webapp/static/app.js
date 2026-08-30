@@ -25,17 +25,16 @@ const elements = {
   quality: document.querySelector('#quality-control'),
   targetSizeField: document.querySelector('#target-size-field'),
   targetSize: document.querySelector('#target-size-control'),
-  engine: document.querySelector('#engine-badge'),
   searchTitle: document.querySelector('#search-title'),
   searchMessage: document.querySelector('#search-message'),
   searchResults: document.querySelector('#search-results'),
+  searchSentinel: document.querySelector('#search-sentinel'),
   searchOptions: document.querySelector('#search-options'),
   searchScope: document.querySelector('#search-scope'),
   install: document.querySelector('#install-button'),
   referenceChip: document.querySelector('#reference-chip'),
   referenceLabel: document.querySelector('#reference-label'),
   referenceClear: document.querySelector('#reference-clear'),
-  suggestions: document.querySelector('.suggestions'),
   uploadEditor: document.querySelector('#upload-editor'),
   uploadMedia: document.querySelector('#upload-media'),
   uploadLabel: document.querySelector('#upload-label'),
@@ -66,23 +65,18 @@ const state = {
   mode: 'create', config: null, objectURL: '', uploadPreviewURL: '', resultBlob: null,
   uploadFile: null, seed: 0, installPrompt: null, reference: null, uploadIsVideo: false,
   history: [], historyIndex: -1, applyingHistory: false, currentDraftID: '', drag: null,
-  searchRequestID: 0,
+  searchRequestID: 0, searchSession: null,
 };
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const editorControlKeys = ['captionPosition', 'motion', 'cropX', 'cropY', 'zoom', 'trimStart', 'trimEnd', 'loop', 'size', 'tempo', 'quality', 'targetSize'];
 let searchTimer;
+let searchContinuationTimer;
 
 async function loadConfig() {
   try {
     const response = await fetch('/api/v1/config');
     state.config = await response.json();
-    if (state.config.planner === 'ai') {
-      elements.engine.innerHTML = '<span></span> AI art director';
-    }
-    if (state.config.image_generator?.local) {
-      elements.engine.innerHTML = '<span></span> Local generative engine';
-    }
     if (state.config.video_editor?.enabled) {
       elements.videoCapability.hidden = true;
     } else {
@@ -110,12 +104,11 @@ function setMode(mode) {
   elements.searchOptions.hidden = !searching;
   elements.uploadEditor.hidden = !editing;
   elements.editControls.hidden = !editing;
-  elements.suggestions.hidden = editing;
   elements.referenceChip.hidden = editing || !state.reference;
   elements.prompt.required = !editing;
   elements.submitLabel.textContent = editing ? 'Export GIF' : searching ? 'Find it' : 'Make it';
   elements.submit.setAttribute('aria-label', editing ? 'Export edited GIF' : searching ? 'Search GIFs' : 'Create GIF');
-  elements.prompt.placeholder = editing ? 'Add a caption (optional)…' : searching ? 'Search reactions, moods, moments...' : 'A tiny victory dance after shipping...';
+  elements.prompt.placeholder = editing ? 'Add a caption (optional)…' : searching ? 'Search GIFs or clips…' : 'Describe a GIF…';
   elements.reroll.textContent = editing ? 'Re-export' : 'Reroll';
   elements.presetField.hidden = !editing;
   elements.targetSizeField.hidden = !editing;
@@ -634,7 +627,10 @@ function updateSearchScope() {
 function clearSearchResults() {
   clearTimeout(searchTimer);
   state.searchRequestID += 1;
+  state.searchSession = null;
   elements.searchResults.replaceChildren();
+  elements.searchSentinel.hidden = true;
+  elements.searchSentinel.textContent = '';
   elements.searchMessage.hidden = true;
   elements.searchMessage.textContent = '';
   elements.searchTitle.textContent = elements.searchScope.value === 'gifs' ? 'Find a GIF' : 'Find source media';
@@ -661,49 +657,114 @@ async function search(query) {
   }
   const requestID = ++state.searchRequestID;
   const searchScope = elements.searchScope.value;
+  const apiKey = state.config?.giphy_api_key;
+  const loaders = searchScope === 'gifs'
+    ? apiKey
+      ? [{ id: 'giphy', load: (cursor) => searchGiphy(query, apiKey, cursor) }]
+      : [{ id: 'gifcities', load: (cursor) => searchGifCities(query, cursor) }]
+    : [
+        { id: 'wikimedia', load: (cursor) => searchWikimedia(query, cursor) },
+        { id: 'prelinger', load: (cursor) => searchPrelinger(query, cursor) },
+        { id: 'nasa', load: (cursor) => searchNASA(query, cursor) },
+      ];
+  const session = {
+    requestID, query, searchScope, loading: false, resultCount: 0,
+    providers: loaders.map((loader) => ({ ...loader, cursor: '', done: false, seen: new Set() })),
+  };
+  state.searchSession = session;
   elements.searchResults.replaceChildren();
   elements.searchMessage.hidden = false;
   elements.searchMessage.textContent = searchScope === 'gifs' ? 'Searching actual GIFs…' : 'Searching source clips and images…';
   elements.searchTitle.textContent = `“${query}”`;
+  elements.searchSentinel.hidden = true;
+  elements.searchSentinel.textContent = '';
 
-  const apiKey = state.config?.giphy_api_key;
-  const searches = searchScope === 'gifs'
-    ? apiKey ? [searchGiphy(query, apiKey)] : [searchGifCities(query)]
-    : [searchWikimedia(query), searchPrelinger(query), searchNASA(query)];
-  const settled = await Promise.allSettled(searches);
-  if (requestID !== state.searchRequestID || state.mode !== 'search' || elements.prompt.value.trim() !== query || elements.searchScope.value !== searchScope) return;
+  await loadMoreSearchResults(session);
+  if (searchSessionIsActive(session)) scrollToElement(elements.searchPanel);
+}
 
-  let resultCount = 0;
+function searchSessionIsActive(session) {
+  return state.searchSession === session
+    && session.requestID === state.searchRequestID
+    && state.mode === 'search'
+    && elements.prompt.value.trim() === session.query
+    && elements.searchScope.value === session.searchScope;
+}
+
+async function loadMoreSearchResults(session = state.searchSession) {
+  if (!session || session.loading || !searchSessionIsActive(session)) return;
+  const activeProviders = session.providers.filter((provider) => !provider.done);
+  if (!activeProviders.length) {
+    updateSearchSentinel(session);
+    return;
+  }
+  session.loading = true;
+  elements.searchSentinel.hidden = false;
+  elements.searchSentinel.textContent = session.resultCount ? 'Loading more…' : '';
+  const settled = await Promise.allSettled(activeProviders.map((provider) => provider.load(provider.cursor)));
+  if (!searchSessionIsActive(session)) return;
+
   const failures = [];
-  for (const outcome of settled) {
+  for (const [index, outcome] of settled.entries()) {
+    const provider = activeProviders[index];
     if (outcome.status === 'rejected') {
       failures.push(outcome.reason.message);
+      provider.done = true;
       continue;
     }
-    if (outcome.value.items.length) {
-      resultCount += outcome.value.items.length;
-      renderProvider(outcome.value);
+    provider.cursor = outcome.value.cursor || '';
+    provider.done = !provider.cursor;
+    const freshItems = outcome.value.items.filter((item, itemIndex) => {
+      const key = item.externalID || item.mediaURL || item.preview || `${provider.id}-${itemIndex}`;
+      if (provider.seen.has(key)) return false;
+      provider.seen.add(key);
+      return true;
+    });
+    if (freshItems.length) {
+      session.resultCount += freshItems.length;
+      renderProvider({ ...outcome.value, items: freshItems });
     }
   }
+  session.loading = false;
   elements.searchMessage.hidden = false;
-  if (resultCount) {
+  if (session.resultCount) {
     elements.searchMessage.hidden = true;
     elements.searchMessage.textContent = '';
   } else {
     elements.searchMessage.textContent = failures[0] || 'No matches yet. Try a broader feeling, action, or subject.';
   }
-  scrollToElement(elements.searchPanel);
+  updateSearchSentinel(session);
 }
 
-async function searchWikimedia(query) {
+function updateSearchSentinel(session) {
+  const hasMore = session.providers.some((provider) => !provider.done);
+  elements.searchSentinel.hidden = session.resultCount === 0;
+  elements.searchSentinel.textContent = hasMore ? '' : 'End of results';
+  if (hasMore) scheduleSearchContinuation(session);
+}
+
+function scheduleSearchContinuation(session = state.searchSession) {
+  if (searchContinuationTimer) return;
+  searchContinuationTimer = setTimeout(() => {
+    searchContinuationTimer = 0;
+    if (!session || !searchSessionIsActive(session)) return;
+    const bounds = elements.searchSentinel.getBoundingClientRect();
+    if (!elements.searchSentinel.hidden && bounds.top <= window.innerHeight + 700) loadMoreSearchResults(session);
+  }, 0);
+}
+
+async function searchWikimedia(query, cursor = '') {
 	const url = new URL('/api/v1/providers/wikimedia/search', window.location.origin);
-	url.search = new URLSearchParams({ q: query, limit: '18', locale: 'en' });
+	url.search = new URLSearchParams({ q: query, limit: '24', locale: 'en' });
+	if (cursor) url.searchParams.set('cursor', cursor);
 	const response = await fetch(url);
 	const payload = await response.json().catch(() => ({}));
 	if (!response.ok) throw new Error(payload.error?.message || 'Wikimedia Commons search failed.');
 	return {
+		id: 'wikimedia',
 		label: 'Wikimedia Commons',
 		credit: 'OPEN MEDIA · CHECK EACH LICENSE',
+		cursor: payload.cursor || '',
 		items: payload.results.map((item) => ({
 			provider: item.provider,
 			externalID: item.external_id,
@@ -720,15 +781,18 @@ async function searchWikimedia(query) {
 	};
 }
 
-async function searchGifCities(query) {
+async function searchGifCities(query, cursor = '') {
 	const url = new URL('/api/v1/providers/gifcities/search', window.location.origin);
-	url.search = new URLSearchParams({ q: query, limit: '18', locale: 'en' });
+	url.search = new URLSearchParams({ q: query, limit: '24', locale: 'en' });
+	if (cursor) url.searchParams.set('cursor', cursor);
 	const response = await fetch(url);
 	const payload = await response.json().catch(() => ({}));
 	if (!response.ok) throw new Error(payload.error?.message || 'GifCities search failed.');
 	return {
+		id: 'gifcities',
 		label: 'GifCities',
 		credit: 'INTERNET ARCHIVE · ARCHIVED GEOCITIES',
+		cursor: payload.cursor || '',
 		items: payload.results.map((item) => ({
 			provider: item.provider,
 			externalID: item.external_id,
@@ -745,15 +809,18 @@ async function searchGifCities(query) {
 	};
 }
 
-async function searchPrelinger(query) {
+async function searchPrelinger(query, cursor = '') {
 	const url = new URL('/api/v1/providers/prelinger/search', window.location.origin);
-	url.search = new URLSearchParams({ q: query, limit: '18', locale: 'en' });
+	url.search = new URLSearchParams({ q: query, limit: '24', locale: 'en' });
+	if (cursor) url.searchParams.set('cursor', cursor);
 	const response = await fetch(url);
 	const payload = await response.json().catch(() => ({}));
 	if (!response.ok) throw new Error(payload.error?.message || 'Prelinger Archive search failed.');
 	return {
+		id: 'prelinger',
 		label: 'Prelinger Archive',
 		credit: 'INTERNET ARCHIVE · ITEM-SPECIFIC LICENSES',
+		cursor: payload.cursor || '',
 		items: payload.results.map((item) => ({
 			provider: item.provider,
 			externalID: item.external_id,
@@ -771,15 +838,18 @@ async function searchPrelinger(query) {
 	};
 }
 
-async function searchNASA(query) {
+async function searchNASA(query, cursor = '') {
 	const url = new URL('/api/v1/providers/nasa/search', window.location.origin);
-	url.search = new URLSearchParams({ q: query, limit: '18', locale: 'en' });
+	url.search = new URLSearchParams({ q: query, limit: '24', locale: 'en' });
+	if (cursor) url.searchParams.set('cursor', cursor);
 	const response = await fetch(url);
 	const payload = await response.json().catch(() => ({}));
 	if (!response.ok) throw new Error(payload.error?.message || 'NASA media search failed.');
 	return {
+		id: 'nasa',
 		label: 'NASA Image and Video Library',
 		credit: 'NASA · SOURCE ACKNOWLEDGMENT REQUIRED',
+		cursor: payload.cursor || '',
 		items: payload.results.map((item) => ({
 			provider: item.provider,
 			externalID: item.external_id,
@@ -796,23 +866,31 @@ async function searchNASA(query) {
 	};
 }
 
-async function searchGiphy(query, apiKey) {
+async function searchGiphy(query, apiKey, cursor = '') {
 	const url = new URL('https://api.giphy.com/v1/gifs/search');
-	url.search = new URLSearchParams({ api_key: apiKey, q: query, limit: '18', rating: 'pg-13', lang: 'en', bundle: 'messaging_non_clips' });
+	const offset = Math.max(0, Number.parseInt(cursor || '0', 10) || 0);
+	url.search = new URLSearchParams({ api_key: apiKey, q: query, limit: '24', offset: String(offset), rating: 'pg-13', lang: 'en', bundle: 'messaging_non_clips' });
 	const response = await fetch(url);
 	const payload = await response.json().catch(() => ({}));
 	if (!response.ok) throw new Error(payload.meta?.msg || 'GIPHY search failed.');
+	const count = Number(payload.pagination?.count) || payload.data.length;
+	const nextOffset = offset + count;
+	const total = Number(payload.pagination?.total_count) || nextOffset;
 	return {
+		id: 'giphy',
 		label: 'GIPHY',
 		credit: 'POWERED BY GIPHY',
+		cursor: count > 0 && nextOffset < total ? String(nextOffset) : '',
 		items: payload.data.map((item) => {
-			const preview = item.images.fixed_width_small || item.images.fixed_width || item.images.original;
+			const preview = item.images.fixed_width || item.images.fixed_width_small || item.images.original;
 			const gifURL = preview.url || item.images.original.url;
 			return {
 				provider: 'giphy',
+				externalID: item.id,
 				kind: 'gif',
 				href: item.url || item.images.original.url,
 				preview: gifURL,
+				previewFallbacks: [item.images.fixed_width_small?.url, item.images.original?.url, `https://i.giphy.com/${item.id}.gif`].filter(Boolean),
 				mediaURL: item.images.original.url || gifURL,
 				title: item.title || query,
 				note: item.user?.display_name || '',
@@ -822,20 +900,25 @@ async function searchGiphy(query, apiKey) {
 }
 
 function renderProvider(result) {
-	const section = document.createElement('section');
-	section.className = 'provider-section';
-	const heading = document.createElement('div');
-	heading.className = 'provider-heading';
-	const title = document.createElement('h3');
-	title.textContent = result.label;
-	const credit = document.createElement('span');
-	credit.textContent = result.credit;
-	heading.append(title, credit);
-	const grid = document.createElement('div');
-	grid.className = 'search-grid';
+	let section = [...elements.searchResults.querySelectorAll('.provider-section')].find((candidate) => candidate.dataset.provider === result.id);
+	let grid = section?.querySelector('.search-grid');
+	if (!section) {
+		section = document.createElement('section');
+		section.className = 'provider-section';
+		section.dataset.provider = result.id;
+		const heading = document.createElement('div');
+		heading.className = 'provider-heading';
+		const title = document.createElement('h3');
+		title.textContent = result.label;
+		const credit = document.createElement('span');
+		credit.textContent = result.credit;
+		heading.append(title, credit);
+		grid = document.createElement('div');
+		grid.className = 'search-grid';
+		section.append(heading, grid);
+		elements.searchResults.append(section);
+	}
 	for (const item of result.items) grid.append(searchCard(item));
-	section.append(heading, grid);
-	elements.searchResults.append(section);
 }
 
 function searchCard(item) {
@@ -844,9 +927,17 @@ function searchCard(item) {
 	const media = document.createElement('div');
 	media.className = 'search-card-media';
 	const image = document.createElement('img');
-	image.src = item.preview;
 	image.alt = item.title;
 	image.loading = 'lazy';
+	image.referrerPolicy = 'no-referrer';
+	const imageSources = [item.preview, ...(item.previewFallbacks || [])].filter((value, index, values) => value && values.indexOf(value) === index);
+	let imageSourceIndex = 0;
+	image.addEventListener('error', () => {
+		imageSourceIndex += 1;
+		if (imageSourceIndex < imageSources.length) image.src = imageSources[imageSourceIndex];
+		else image.classList.add('failed');
+	});
+	image.src = imageSources[0] || '';
 	if (item.kind === 'gif') image.setAttribute('aria-label', `${item.title}. Animated GIF; touch and hold to copy.`);
 	media.append(image);
 	card.append(media);
@@ -990,13 +1081,6 @@ function showToast(message) {
 }
 
 for (const mode of elements.modes) mode.addEventListener('click', () => setMode(mode.dataset.mode));
-for (const suggestion of document.querySelectorAll('[data-prompt]')) {
-  suggestion.addEventListener('click', () => {
-    elements.prompt.value = suggestion.dataset.prompt;
-    elements.prompt.focus();
-    if (state.mode === 'search') queueSearch();
-  });
-}
 elements.form.addEventListener('submit', submitPrompt);
 elements.searchScope.addEventListener('change', () => {
   updateSearchScope();
@@ -1068,6 +1152,11 @@ elements.install.addEventListener('click', async () => {
 });
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js');
+const searchObserver = new IntersectionObserver((entries) => {
+  if (entries.some((entry) => entry.isIntersecting)) scheduleSearchContinuation();
+}, { rootMargin: '700px 0px' });
+searchObserver.observe(elements.searchSentinel);
+window.addEventListener('scroll', () => scheduleSearchContinuation(), { passive: true });
 loadConfig();
 refreshDrafts();
 updateEditorVisuals();

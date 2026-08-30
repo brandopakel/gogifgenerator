@@ -31,6 +31,7 @@ func TestSearchUsesActualGIFsAndReactiveInput(t *testing.T) {
 	for _, marker := range []string{
 		"preview.url || item.images.original.url", "media.append(image)", "openGIF.textContent = 'Open GIF'",
 		"function queueSearch()", "function clearSearchResults()", "if (state.mode === 'search') queueSearch()",
+		"function loadMoreSearchResults", "new IntersectionObserver", "offset: String(offset)", "payload.cursor || ''",
 	} {
 		if !strings.Contains(script, marker) {
 			t.Fatalf("app.js does not contain %q", marker)
@@ -47,7 +48,10 @@ func TestShellKeepsExplanatoryCopyOutOfTheInterface(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := string(data)
-	for _, marker := range []string{"hero-copy", "result-note", "result-touch-hint", "search-scope-note", "editor-help", "ONE PROMPT", "CURRENT CUT", "source discarded"} {
+	for _, marker := range []string{
+		"hero-copy", "result-note", "result-touch-hint", "search-scope-note", "editor-help", "ONE PROMPT", "CURRENT CUT", "source discarded",
+		`class="suggestions"`, "engine-badge", "hero-title", "Make a moment<br>",
+	} {
 		if strings.Contains(page, marker) {
 			t.Fatalf("index.html still contains explanatory UI copy marker %q", marker)
 		}
@@ -64,5 +68,15 @@ func TestStylesRespectReducedMotionAndVisibleFocus(t *testing.T) {
 		if !strings.Contains(styles, marker) {
 			t.Fatalf("app.css does not contain %q", marker)
 		}
+	}
+}
+
+func TestServiceWorkerDoesNotInterceptProviderMedia(t *testing.T) {
+	data, err := fs.ReadFile(Files(), "service-worker.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "url.origin !== self.location.origin") {
+		t.Fatal("service worker does not leave cross-origin provider media requests to the browser")
 	}
 }

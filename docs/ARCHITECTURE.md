@@ -75,6 +75,8 @@ Cloud object storage, managed databases, remote GPU workers, and hosted model AP
 
 The pure-Go renderer is universally buildable and owns final cropping, captions, timing, palette conversion, and target-size retries. Photo and GIF inputs decode in-process under explicit pixel/frame limits. Short video remains optional: `internal/video/ffmpeg` writes one request to a private temporary directory, invokes a local executable without a shell, bounds the clip to fifteen seconds and forty-eight frames, decodes the result, and removes the directory. Future renderers can add better typography, stickers, subject tracking, animated WebP, and MP4 behind the same contracts.
 
+A Blender/Unity pipeline should be a sequence, not two opaque generators whose finished pixels are averaged together. Blender can create or transform geometry and scene assets; a supported Unity 6 LTS worker can import those assets and render deterministic camera, character, lighting, and VFX passes in batch mode; Go/FFmpeg can composite and encode the final deliverables. Neither 3D engine provides prompt-level photorealistic synthesis by itself, so ComfyUI or another explicitly configured image/video model remains the semantic realism stage. Unity 5 is retained only in Unity's archive and is not a suitable new worker target; no Unity editor is currently installed on the test Mac.
+
 ## Deployment path
 
 1. Local/self-hosted Go binary with local files and optional local MemKV.

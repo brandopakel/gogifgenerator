@@ -69,5 +69,6 @@ Unknown rights are represented as `unknown`, never as permission.
 3. Use controlled, temporary fetch-on-selection only for Wikimedia items whose recorded rights allow derivatives; discard source bytes after generation.
 4. Use the implemented NASA adapter without mirroring its archive; keep NASA results review-only and Prelinger transformation disabled until the bounded local video pipeline exists.
 5. Keep GIPHY optional when a platform key is explicitly configured.
-6. Add Pixabay/Pexels only as user-directed editor inputs after a terms review.
-7. Contact Yarn about an API/content partnership; do not scrape it or block the MVP on it.
+6. Apply for GIPHY Clips access before adding its approved short-video endpoint; an ordinary GIF beta key must not be assumed to include Clips.
+7. Add Pixabay/Pexels only as user-directed editor inputs after a terms review.
+8. Contact Yarn about an API/content partnership; do not scrape it or block the MVP on it.
