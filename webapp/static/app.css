@@ -51,11 +51,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; gap: 10px; align-items: center; color: var(--ink); text-decoration: none; font-weight: 900; letter-spacing: -.04em; font-size: 1.2rem; }
-.brand-mark { display: flex; width: 30px; height: 26px; align-items: end; gap: 3px; transform: skew(-9deg); }
-.brand-mark i { display: block; width: 8px; background: var(--acid); }
-.brand-mark i:nth-child(1) { height: 11px; }
-.brand-mark i:nth-child(2) { height: 18px; background: var(--pink); }
-.brand-mark i:nth-child(3) { height: 25px; background: var(--blue); }
+.brand-logo { display: block; width: 30px; height: 30px; border-radius: 8px; }
 .quiet-button { border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px; background: transparent; cursor: pointer; }
 .account-actions { display: flex; align-items: center; gap: 8px; }
 .account-actions a { color: var(--ink); text-decoration: none; }
@@ -81,6 +77,11 @@ textarea::placeholder { color: #70737a; }
 .search-options { display: flex; align-items: center; justify-content: flex-end; gap: 9px; margin-top: 10px; color: var(--muted); font-size: .7rem; }
 .search-options label { font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
 .search-options select { width: auto; min-width: 150px; padding: 8px 31px 8px 10px; }
+.create-toolbar { position: relative; min-height: 43px; margin-top: 10px; }
+.create-controls { padding: 11px 3px 0; border-top: 0; }
+.create-controls > summary { line-height: 32px; }
+.create-controls .control-grid { width: min(100%, 700px); padding-top: 17px; border-top: 1px solid var(--line); }
+.create-output { position: absolute; top: 0; right: 0; margin-top: 0; }
 .upload-editor { max-width: 780px; margin: 13px auto 0; }
 .upload-picker { display: grid; gap: 4px; padding: 17px 20px; border: 1px dashed rgb(112 214 255 / 45%); border-radius: 13px; background: rgb(112 214 255 / 6%); text-align: left; cursor: pointer; }
 .upload-picker:hover { border-color: var(--blue); background: rgb(112 214 255 / 10%); }
@@ -255,6 +256,8 @@ footer a { color: inherit; }
   .go-button { height: 44px; padding-inline: 14px; }
   .search-options { align-items: stretch; flex-direction: column; }
   .search-options select { width: 100%; }
+  .create-output { width: auto; align-items: center; flex-direction: row; }
+  .create-output select { width: auto; min-width: 118px; }
   .workspace { margin-top: 18px; padding-top: 14px; }
   .preview-shell { aspect-ratio: 1; border-radius: 17px; }
   .workspace-meta { align-items: stretch; flex-direction: column; }

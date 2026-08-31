@@ -144,6 +144,30 @@ func TestShellKeepsExplanatoryCopyOutOfTheInterface(t *testing.T) {
 	}
 }
 
+func TestCreateFineTuneToolbarAndBrandUseOneCanonicalMark(t *testing.T) {
+	index, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(index)
+	toolbar := strings.Index(page, `id="create-toolbar"`)
+	workspace := strings.Index(page, `id="create-panel"`)
+	if toolbar < 0 || workspace < 0 || toolbar > workspace {
+		t.Fatal("create toolbar is not positioned above the Create workspace")
+	}
+	if strings.Count(page, `id="generation-controls"`) != 1 || strings.Count(page, `id="create-options"`) != 1 {
+		t.Fatal("create toolbar controls were duplicated")
+	}
+	for _, marker := range []string{`class="brand-logo"`, `src="/icon.svg?v=2"`, `class="search-options create-output"`} {
+		if !strings.Contains(page, marker) {
+			t.Fatalf("index.html does not contain %q", marker)
+		}
+	}
+	if strings.Contains(page, "brand-mark") {
+		t.Fatal("legacy three-bar brand mark is still present")
+	}
+}
+
 func TestStylesRespectReducedMotionAndVisibleFocus(t *testing.T) {
 	data, err := fs.ReadFile(Files(), "app.css")
 	if err != nil {

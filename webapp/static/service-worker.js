@@ -1,5 +1,5 @@
-const CACHE = 'gogif-shell-v25';
-const SHELL = ['/', '/app.css', '/app.js', '/icon.svg', '/icon-512.png', '/apple-touch-icon.png', '/manifest.webmanifest'];
+const CACHE = 'gogif-shell-v26';
+const SHELL = ['/', '/app.css', '/app.js', '/icon.svg?v=2', '/icon-512.png?v=2', '/apple-touch-icon.png?v=2', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));

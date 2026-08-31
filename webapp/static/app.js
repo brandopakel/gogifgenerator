@@ -4,6 +4,7 @@ const elements = {
   submit: document.querySelector('#submit-button'),
   submitLabel: document.querySelector('#submit-label'),
   modes: [...document.querySelectorAll('.mode')],
+  createToolbar: document.querySelector('#create-toolbar'),
 	createOptions: document.querySelector('#create-options'),
 	createKind: document.querySelector('#create-kind'),
   createPanel: document.querySelector('#create-panel'),
@@ -570,6 +571,7 @@ function setMode(mode) {
   elements.searchPanel.hidden = !searching;
   elements.libraryPanel.hidden = !library;
   elements.form.hidden = library;
+	elements.createToolbar.hidden = searching || library;
 	elements.createOptions.hidden = editing || searching || library;
   elements.searchOptions.hidden = !searching;
 	elements.modelOptions.hidden = !modeling;

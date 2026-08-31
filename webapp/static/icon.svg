@@ -1,6 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="GoGIF loop and play mark">
   <rect width="512" height="512" rx="116" fill="#111318"/>
-  <path d="M92 322h76v82H92zm126-98h76v180h-76zm126-116h76v296h-76z" fill="#e8ff47" transform="skewX(-8)"/>
-  <circle cx="132" cy="139" r="46" fill="#ff5c8a"/>
-  <path d="M79 213c73-60 137-61 193-4s108 51 161-19" fill="none" stroke="#70d6ff" stroke-width="24" stroke-linecap="round"/>
+  <path d="M130 205c24-75 93-124 174-115 43 5 81 25 109 55" fill="none" stroke="#e8ff47" stroke-width="52" stroke-linecap="round"/>
+  <path d="m373 82 75 77-103 25z" fill="#e8ff47"/>
+  <path d="M382 307c-24 75-93 124-174 115-43-5-81-25-109-55" fill="none" stroke="#70d6ff" stroke-width="52" stroke-linecap="round"/>
+  <path d="m139 430-75-77 103-25z" fill="#70d6ff"/>
+  <path d="m218 177 118 79-118 79z" fill="#f7f7f2"/>
 </svg>

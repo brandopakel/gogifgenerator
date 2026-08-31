@@ -10,8 +10,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="GoGIF">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="icon" href="/icon.svg" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="icon" href="/icon.svg?v=2" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
     <link rel="stylesheet" href="/app.css">
     <title>GoGIF</title>
   </head>
@@ -19,7 +19,7 @@
     <div class="noise" aria-hidden="true"></div>
     <header class="topbar">
       <a class="brand" href="/" aria-label="GoGIF home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <img class="brand-logo" src="/icon.svg?v=2" alt="" width="30" height="30">
         <span>GoGIF</span>
       </a>
       <div class="account-actions">
@@ -50,13 +50,66 @@
             </button>
           </form>
         </div>
-		<div id="create-options" class="search-options">
-		  <label for="create-kind">Output</label>
-		  <select id="create-kind">
-			<option value="gif">GIF</option>
-			<option value="model">3D model</option>
-		  </select>
-		</div>
+        <div id="create-toolbar" class="create-toolbar">
+          <details id="generation-controls" class="controls create-controls">
+            <summary>Fine tune</summary>
+            <div class="control-grid">
+              <label id="generation-mode-field">Visual source
+                <select id="generation-mode-control">
+                  <option value="semantic">Realistic AI · subject-aware</option>
+                  <option value="studio">Studio Local · Blender + Unity + Unreal</option>
+                  <option value="fast">Fast local · abstract</option>
+                </select>
+              </label>
+              <label id="preset-field" hidden>Export preset
+                <select id="preset-control">
+                  <option value="messages">Messages · balanced</option>
+                  <option value="discord">Discord · compact</option>
+                  <option value="slack">Slack · balanced</option>
+                  <option value="quality">Large · quality</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+              <label>Canvas
+                <select id="size-control">
+                  <option value="480">Square · 480</option>
+                  <option value="320">Compact · 320</option>
+                  <option value="720">Large · 720</option>
+                </select>
+              </label>
+              <label>Tempo
+                <select id="tempo-control">
+                  <option value="70">Snappy</option>
+                  <option value="110">Easy</option>
+                  <option value="40">Hyper</option>
+                </select>
+              </label>
+              <label>Animation quality
+                <select id="quality-control">
+                  <option value="18">Balanced · 18 frames</option>
+                  <option value="12">Compact · 12 frames</option>
+                  <option value="24">Smooth · 24 frames</option>
+                </select>
+              </label>
+              <label id="target-size-field" hidden>Maximum file size
+                <select id="target-size-control">
+                  <option value="8388608">8 MiB</option>
+                  <option value="5242880">5 MiB</option>
+                  <option value="2097152">2 MiB</option>
+                  <option value="15728640">15 MiB</option>
+                  <option value="0">No target</option>
+                </select>
+              </label>
+            </div>
+          </details>
+          <div id="create-options" class="search-options create-output">
+            <label for="create-kind">Output</label>
+            <select id="create-kind">
+              <option value="gif">GIF</option>
+              <option value="model">3D model</option>
+            </select>
+          </div>
+        </div>
         <div id="search-options" class="search-options" hidden>
           <label for="search-scope">Search for</label>
           <select id="search-scope">
@@ -113,57 +166,6 @@
             <a id="download-button" class="primary-button disabled" download="gogif.gif" aria-disabled="true">Download</a>
           </div>
         </div>
-        <details id="generation-controls" class="controls">
-          <summary>Fine tune</summary>
-          <div class="control-grid">
-            <label id="generation-mode-field">Visual source
-              <select id="generation-mode-control">
-                <option value="semantic">Realistic AI · subject-aware</option>
-                <option value="studio">Studio Local · Blender + Unity + Unreal</option>
-                <option value="fast">Fast local · abstract</option>
-              </select>
-            </label>
-            <label id="preset-field" hidden>Export preset
-              <select id="preset-control">
-                <option value="messages">Messages · balanced</option>
-                <option value="discord">Discord · compact</option>
-                <option value="slack">Slack · balanced</option>
-                <option value="quality">Large · quality</option>
-                <option value="custom">Custom</option>
-              </select>
-            </label>
-            <label>Canvas
-              <select id="size-control">
-                <option value="480">Square · 480</option>
-                <option value="320">Compact · 320</option>
-                <option value="720">Large · 720</option>
-              </select>
-            </label>
-            <label>Tempo
-              <select id="tempo-control">
-                <option value="70">Snappy</option>
-                <option value="110">Easy</option>
-                <option value="40">Hyper</option>
-              </select>
-            </label>
-            <label>Animation quality
-              <select id="quality-control">
-                <option value="18">Balanced · 18 frames</option>
-                <option value="12">Compact · 12 frames</option>
-                <option value="24">Smooth · 24 frames</option>
-              </select>
-            </label>
-            <label id="target-size-field" hidden>Maximum file size
-              <select id="target-size-control">
-                <option value="8388608">8 MiB</option>
-                <option value="5242880">5 MiB</option>
-                <option value="2097152">2 MiB</option>
-                <option value="15728640">15 MiB</option>
-                <option value="0">No target</option>
-              </select>
-            </label>
-          </div>
-        </details>
         <details id="edit-controls" class="controls" hidden>
           <summary>Upload editor</summary>
           <div class="editor-toolbar" aria-label="Editor history and drafts">
