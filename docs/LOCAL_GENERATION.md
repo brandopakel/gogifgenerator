@@ -1,10 +1,10 @@
 # Local generation without API bills
 
-GoGIF has three no-key creation paths. The built-in Go renderer is instant and dependency-free. Blender produces original procedural 3D art. ComfyUI runs a diffusion checkpoint locally and can transform one rights-approved Wikimedia image.
+GoGIF retains three no-key development paths. The built-in Go renderer is instant and dependency-free, Blender can produce procedural 3D art, and local ComfyUI can run a diffusion checkpoint and transform one rights-approved Wikimedia image. Only ComfyUI is semantic enough for the normal prompt-to-GIF product flow.
 
-It also has separately opt-in hosted semantic paths using OpenAI's Image API or a ComfyUI FLUX Partner workflow. Every semantic adapter implements the same `internal/imagegen` contract. Normal **Realistic AI** requests animate that source with the lightweight Go renderer; only explicit **Studio Local** requests invoke the downstream cinematic pipeline.
+It also has separately opt-in hosted semantic paths using OpenAI's Image API or a ComfyUI FLUX Partner workflow. Every semantic adapter implements the same `internal/imagegen` contract. Create → GIF always animates that source with the lightweight Go renderer.
 
-A fourth, explicitly enabled cinematic path coordinates Blender, Unity 6.3, Unreal Engine 5, and FFmpeg. It can start from a local/reference image without a hosted dependency or use the configured hosted semantic generator. The editor installations remain local, large, and subject to their own activation, licensing, and hardware requirements. See [Cinematic pipeline](CINEMATIC_PIPELINE.md).
+An explicitly enabled legacy cinematic proof-of-concept still coordinates Blender, Unity 6.3, Unreal Engine 5, and FFmpeg for developer validation. It is no longer a GIF source in the PWA. The planned Scene workspace will use Blender for asset preparation and choose Unity or Unreal as the render target. The editor installations remain local, large, and subject to their own activation, licensing, and hardware requirements. See [Scene pipeline](CINEMATIC_PIPELINE.md).
 
 Local software does not create a vendor bill, but it still uses your disk, bandwidth, CPU/GPU, and electricity. Every downloaded checkpoint has its own license; “free to download” does not automatically mean unrestricted commercial use.
 
@@ -73,7 +73,7 @@ export GOGIF_COMFYUI_IMAGE_RECIPE=flux-ultra
 make run
 ```
 
-GoGIF sends the key in `X-API-Key` only to Comfy Cloud and supplies it in ComfyUI's documented `extra_data` field for the Partner Node. It follows Cloud's current `/api/jobs/{id}` status contract rather than the deprecated history endpoint. The `/view` redirect is restricted to HTTPS and followed without the API key. Returned image bytes and decoded pixel dimensions are bounded before the image is cropped and resampled to the exact GIF canvas. Selecting **Studio Local** uses the same hosted source but then launches Blender, Unity, Unreal, and FFmpeg locally; it is not a cloud render farm.
+GoGIF sends the key in `X-API-Key` only to Comfy Cloud and supplies it in ComfyUI's documented `extra_data` field for the Partner Node. It follows Cloud's current `/api/jobs/{id}` status contract rather than the deprecated history endpoint. The `/view` redirect is restricted to HTTPS and followed without the API key. Returned image bytes and decoded pixel dimensions are bounded before the image is cropped and resampled to the exact GIF canvas. This hosted source does not launch Blender, Unity, or Unreal during ordinary GIF creation.
 
 Comfy Cloud API execution requires a Creator or Pro subscription. FLUX 1.1 Pro Ultra is a paid Partner Node, so its inference also consumes account credits. A local ComfyUI process can orchestrate the same hosted Partner Node by setting `GOGIF_COMFYUI_IMAGE_URL=http://127.0.0.1:8188`; this avoids the Cloud subscription requirement but still requires Comfy credits and a running local backend.
 

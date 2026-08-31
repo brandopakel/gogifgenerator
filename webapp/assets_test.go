@@ -174,7 +174,7 @@ func TestCreateFineTuneToolbarAndBrandUseOneCanonicalMark(t *testing.T) {
 		".create-controls > summary::-webkit-details-marker",
 		".create-controls > summary::after",
 		".create-controls[open] > summary::after",
-		"grid-template-columns: repeat(4, minmax(0, 1fr))",
+		".create-controls .control-grid { width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr))",
 		"grid-template-columns: repeat(2, minmax(0, 1fr))",
 	} {
 		if !strings.Contains(string(styles), marker) {
@@ -264,7 +264,7 @@ func TestResultActionsNeverWrap(t *testing.T) {
 	}
 }
 
-func TestFastLocalCannotSilentlyReplaceSemanticScenes(t *testing.T) {
+func TestCreateDoesNotExposeProceduralOrLocalEditorRenderers(t *testing.T) {
 	index, err := fs.ReadFile(Files(), "index.html")
 	if err != nil {
 		t.Fatal(err)
@@ -273,17 +273,14 @@ func TestFastLocalCannotSilentlyReplaceSemanticScenes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(index), `Abstract only · shapes + type`) {
-		t.Fatal("Fast local is not labeled as an abstract-only renderer")
+	for _, marker := range []string{`id="generation-mode-control"`, "Studio Local", "Abstract only"} {
+		if strings.Contains(string(index), marker) {
+			t.Fatalf("create UI still exposes %q", marker)
+		}
 	}
-	for _, marker := range []string{
-		"function explicitlyRequestsAbstractMotion(prompt)",
-		"function generationModeForPrompt(prompt)",
-		"using Realistic AI for this subject",
-		"Realistic AI is required for recognizable subjects and scenes",
-	} {
-		if !strings.Contains(string(script), marker) {
-			t.Fatalf("semantic quality guard does not contain %q", marker)
+	for _, marker := range []string{"generationModeForPrompt", "Animating abstract shapes locally", "Rendering locally in Blender, Unity, and Unreal"} {
+		if strings.Contains(string(script), marker) {
+			t.Fatalf("create client still contains renderer selection path %q", marker)
 		}
 	}
 }
@@ -317,16 +314,17 @@ func TestServiceWorkerDoesNotInterceptProviderMedia(t *testing.T) {
 	}
 }
 
-func TestReferenceRemixRecognizesEnabledQualityPipeline(t *testing.T) {
+func TestReferenceRemixUsesSemanticGeneratorOnly(t *testing.T) {
 	data, err := fs.ReadFile(Files(), "app.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	script := string(data)
-	for _, marker := range []string{"quality_pipeline?.enabled", "quality_pipeline?.supports_references"} {
-		if !strings.Contains(script, marker) {
-			t.Fatalf("app.js does not contain %q", marker)
-		}
+	if !strings.Contains(script, "const canRemix = state.config?.image_generator?.supports_references") {
+		t.Fatal("reference remix is not gated on the semantic generator")
+	}
+	if strings.Contains(script, "quality_pipeline?.supports_references") {
+		t.Fatal("reference remix can still launch the local editor pipeline")
 	}
 }
 
@@ -339,14 +337,35 @@ func TestCreateModeRequestsSemanticGenerationExplicitly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, marker := range []string{`value="semantic"`, "Realistic AI · subject-aware", `value="studio"`, "Studio Local · Blender + Unity + Unreal"} {
-		if !strings.Contains(string(index), marker) {
-			t.Fatalf("index.html does not contain %q", marker)
-		}
+	if strings.Contains(string(index), `id="generation-mode-control"`) {
+		t.Fatal("GIF create still exposes an engine selector")
 	}
-	for _, marker := range []string{"generation_mode: generationMode", "image_generator?.semantic", "Realistic AI · setup required", "quality_pipeline?.enabled", "Rendering locally in Blender, Unity, and Unreal"} {
+	for _, marker := range []string{"generation_mode: 'semantic'", "Generating the scene in Comfy Cloud…"} {
 		if !strings.Contains(string(script), marker) {
 			t.Fatalf("app.js does not contain %q", marker)
+		}
+	}
+	for _, marker := range []string{"generation_mode: generationMode", "Animating abstract shapes locally", "Rendering locally in Blender, Unity, and Unreal"} {
+		if strings.Contains(string(script), marker) {
+			t.Fatalf("app.js still contains user-facing renderer branch %q", marker)
+		}
+	}
+}
+
+func TestGIFFineTuneContainsOnlyOutputControls(t *testing.T) {
+	index, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(index)
+	for _, label := range []string{"Canvas", "Tempo", "Animation quality"} {
+		if !strings.Contains(page, label) {
+			t.Fatalf("GIF fine tune is missing %q", label)
+		}
+	}
+	for _, label := range []string{"Visual source", "Studio Local", "Abstract only"} {
+		if strings.Contains(page, label) {
+			t.Fatalf("GIF fine tune still contains %q", label)
 		}
 	}
 }

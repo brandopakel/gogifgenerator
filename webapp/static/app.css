@@ -90,7 +90,7 @@ textarea::placeholder { color: #70737a; }
 .create-controls > summary:hover { border-color: #555c68; background: rgb(255 255 255 / 7%); color: var(--ink); }
 .create-controls[open] > summary { border-color: rgb(232 255 71 / 38%); color: var(--ink); }
 .create-controls > summary:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
-.create-controls .control-grid { width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 8px; padding-top: 17px; border-top: 1px solid var(--line); }
+.create-controls .control-grid { width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 8px; padding-top: 17px; border-top: 1px solid var(--line); }
 .create-output { position: absolute; top: 8px; right: 0; margin-top: 0; }
 .upload-editor { max-width: 780px; margin: 13px auto 0; }
 .upload-picker { display: grid; gap: 4px; padding: 17px 20px; border: 1px dashed rgb(112 214 255 / 45%); border-radius: 13px; background: rgb(112 214 255 / 6%); text-align: left; cursor: pointer; }

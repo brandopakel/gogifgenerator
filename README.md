@@ -6,13 +6,13 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 
 ## What works now
 
-- Pure-Go animated GIF renderer with orbit, pulse, wave, and confetti motion systems
-- Free local Blender still generation, animated and encoded into GIFs by Go
+- Pure-Go animated GIF renderer retained for editing, tests, and development utilities
+- Experimental Blender asset/still generation retained outside the normal subject-aware GIF flow
 - Native local ComfyUI adapter for text-to-image and one licensed reference image
 - Hosted-GPU ComfyUI FLUX 1.1 Pro Ultra adapter with an allowlisted server-owned workflow and exact output normalization
 - First-class prompt-to-GLB creation through allowlisted ComfyUI Tripo 3.1 and Hunyuan 3D 3.1 workflows, with interactive preview, save, share, and clipboard/link fallbacks
 - Server-side GPT Image 2 adapter for high-fidelity prompt-to-image and reference editing, separately paid and explicitly opt-in
-- Explicit **Studio Local** pipeline for AI/reference imagery → Blender FBX assets → Unity 6.3 motion/VFX → Unreal Engine 5 beauty frames → FFmpeg GIF encoding
+- Opt-in experimental scene pipeline with Blender asset preparation, Unity 6.3 real-time motion/VFX, Unreal Engine 5 cinematic rendering, and FFmpeg encoding
 - Natural-language art planning with a deterministic offline planner
 - Optional, disabled-by-default OpenAI art direction through the Responses API and strict structured output
 - Automatic local fallback if the AI provider is unavailable
@@ -46,43 +46,42 @@ Requirements: Go 1.26.5 or newer. FFmpeg is optional; when its executable is ava
 make run
 ```
 
-Open <http://localhost:8080>. No account or API key is required for local GIF creation.
+Open <http://localhost:8080>. Search, editing, and the developer renderer work without an API key. The user-facing prompt-to-GIF flow is intentionally subject-aware and therefore requires a configured ComfyUI or OpenAI semantic image generator.
 
-This is the zero-spend mode: local Go rendering, public-catalog discovery, in-memory metadata, and local filesystem output. It does not provision cloud storage or call a paid AI API. See [Zero-cost architecture](docs/ZERO_COST_ARCHITECTURE.md).
+The bare process is the zero-spend development topology: public-catalog discovery, editing, the compatibility renderer/API, in-memory metadata, and local filesystem output. It does not provision cloud storage or call a paid AI API. Add local ComfyUI for a no-vendor-bill subject-aware GIF path. See [Zero-cost architecture](docs/ZERO_COST_ARCHITECTURE.md).
 
 GoGIF is a connector, not a GIF warehouse: existing catalog media stays on its source host. Only original GoGIF outputs (and explicit user uploads) enter managed local storage. A licensed reference used for generation is temporary and is deleted after the new output is created.
 
-For richer procedural art using the Blender already installed on this computer:
+For procedural development experiments using Blender:
 
 ```sh
 GOGIF_IMAGE_GENERATOR=blender make run
 ```
 
-Blender is not a diffusion model: it creates an original prompt-seeded 3D scene without a model download, account, or network call. It cannot understand a character or location from text by itself. For semantic text-to-image generation and licensed reference remixes, use local ComfyUI or the separately enabled GPT Image adapter in [Local generation](docs/LOCAL_GENERATION.md). The PWA's **Realistic AI** mode is fail-closed: if no semantic generator is configured, it explains that setup is required instead of silently returning abstract geometry. **Abstract only** remains available for prompts explicitly requesting geometric motion, shapes, patterns, particles, gradients, or visualizers. When that renderer is selected for a recognizable subject or scene, the PWA routes to Realistic AI if the user's plan and configured backend allow it; otherwise it stops with a clear explanation.
+Blender is not a diffusion model: it can build geometry, materials, rigs, and scene assets, but it cannot infer a named character or location from text by itself. GoGIF therefore no longer exposes Blender or procedural shapes as alternative GIF quality modes. Create → GIF always uses the configured semantic generator and fails closed if it is unavailable. The older `fast` and `studio` API modes remain for tests and explicit developer experiments; they are not choices in the product UI. See [Local generation](docs/LOCAL_GENERATION.md).
 
-The multi-engine quality pipeline is implemented behind an explicit opt-in. The current test Mac has 8 GB of unified memory plus Blender 5.2, Unity 6000.3.23f1, Unreal Engine 5.8.2, FFmpeg 9, Xcode 26.1.1, and Apple's Metal toolchain. A real request passed through every stage and returned `comfyui-partner-flux-ultra+blender+unity-6.3+unreal-5+ffmpeg+local`. **Realistic AI** is the normal cloud-first path; **Studio Local** is the only prompt mode that launches all three editors. See [Cinematic pipeline](docs/CINEMATIC_PIPELINE.md).
+The previously validated multi-editor chain remains behind `GOGIF_ENABLE_QUALITY_PIPELINE` as an experimental developer capability. It is being reframed as a Scene workspace: ComfyUI supplies semantic concept/reference media, Blender prepares portable assets, and a project chooses **Unity or Unreal** as its render target. Unity and Unreal are no longer presented as mandatory consecutive “quality” filters for ordinary GIFs. FFmpeg should produce MP4/WebM masters and optional GIF derivatives. See [Scene pipeline](docs/CINEMATIC_PIPELINE.md).
 
 ### Where generation runs
 
 The current private test deployment is self-hosted on the Mac and exposed to the owner's devices through Tailscale. Comfy Cloud hosts model inference, not the GoGIF web server and not the Blender/Unity/Unreal stages.
 
-| Create mode | Work performed | Mac impact | Paid credits |
+| Output | Work performed | Mac impact | Paid credits |
 | --- | --- | --- | --- |
-| **Realistic AI** (default) | FLUX source image on Comfy Cloud; bounded Go animation and GIF encoding on the Mac | Low to moderate | Yes, one hosted image workflow |
-| **Studio Local** | Comfy Cloud source, then Blender → Unity → Unreal → FFmpeg on the Mac | Very high; editor startup and rendering can saturate an 8-GB Mac | Yes, plus local compute |
-| **Abstract only** | Procedural shapes, patterns, type, and motion only; no semantic subject understanding | Low | No |
-| **3D** | Tripo/Hunyuan Partner Node on Comfy Cloud; GLB validation/storage on the Mac | Low during inference; large models still use browser and disk memory | Yes, one hosted 3D workflow |
+| **GIF** | Semantic keyframe on Comfy Cloud; bounded Go animation and GIF encoding on the Mac | Low to moderate | Yes, one hosted image workflow |
+| **3D model** | Tripo/Hunyuan Partner Node on Comfy Cloud; GLB validation/storage on the Mac | Low during inference; large models still use browser and disk memory | Yes, one hosted 3D workflow |
+| **Scene** (in development) | Comfy/reference art → Blender assets → Unity **or** Unreal render worker → MP4/WebM, with optional GIF export | Must run asynchronously on a suitably equipped worker | Provider plus worker compute |
 
-If the Mac becomes hot, swaps heavily, or the UI stutters, confirm that **Visual source** is set to **Realistic AI**, not **Studio Local**. Studio jobs are serialized but intentionally resource-intensive. The server may keep Studio configured so it remains selectable; merely configuring it no longer sends ordinary Realistic AI requests through the editors.
+Ordinary GIF and 3D requests do not launch Blender, Unity, or Unreal. If this Mac becomes hot or swaps heavily, an explicit developer scene-pipeline request is running; stop that experiment and move future scene rendering to an asynchronous GPU/CPU worker. Comfy Cloud hosts model inference only—it does not host the GoGIF web server or the installed editors.
 
 ## Accounts, libraries, and sustainable generation
 
 The commercial account system is implemented but disabled by default. That preserves the current owner-testing deployment until an identity provider and Stripe account are deliberately connected. When accounts are enabled:
 
-- Guests can make three small **Fast local** GIFs per day. Guest work is not added to a server library and cannot consume Comfy credits.
-- Free accounts receive ten GoGIF credits per month, Realistic AI access up to 480 px / 12 frames, and a private 25-item / 100 MiB library.
+- Guests can search and edit small uploads; signing up is required before spending cloud generation credits or receiving a private library.
+- Free accounts receive ten GoGIF credits per month, subject-aware GIF creation up to 480 px / 12 frames, and a private 25-item / 100 MiB library.
 - Creator defaults to $15/month, 150 credits, 720 px / 18 frames, 3D creation, and 500 items / 5 GiB.
-- Pro defaults to $39/month, 500 credits, 720 px / 24 frames, 3D plus Studio Local, and 2,500 items / 25 GiB.
+- Pro defaults to $39/month, 500 credits, 720 px / 24 frames, 3D plus future experimental Scene tools, and 2,500 items / 25 GiB.
 
 GoGIF credits are an internal cost-control unit, not Comfy credits: Fast/edit costs 1, normal semantic generation costs 5, higher-quality semantic generation costs 8, Studio costs 30, and 3D costs 50. A reservation is written before work starts, consumed only after success, and released after failure. This prevents a failed Comfy job from charging the user while also preventing concurrent requests from overspending the same balance.
 
@@ -164,7 +163,7 @@ export GOGIF_OPENAI_IMAGE_QUALITY="high"
 make run
 ```
 
-This is independent from AI planning: enabling image generation does not implicitly enable the paid planner. **Realistic AI** requests a high-resolution semantic keyframe, normalizes it to the GIF canvas, and applies restrained lightweight motion in Go. Select **Studio Local** explicitly to send the reference through Blender, Unity, Unreal, and FFmpeg. See the [official OpenAI image generation guide](https://developers.openai.com/api/docs/guides/image-generation).
+This is independent from AI planning: enabling image generation does not implicitly enable the paid planner. GIF creation requests a high-resolution semantic keyframe, normalizes it to the GIF canvas, and applies restrained lightweight motion in Go. The installed 3D editors are reserved for explicit developer scene work. See the [official OpenAI image generation guide](https://developers.openai.com/api/docs/guides/image-generation).
 
 To run subject-aware imagery on hosted GPU infrastructure through ComfyUI instead of loading diffusion weights on the GoGIF Mac:
 
@@ -242,7 +241,7 @@ The GIF bytes go to content-addressed blob storage; MemKV holds the searchable r
 | `GET` | `/api/v1/providers/{provider}/items/{id}/quote?q=...` | Match a quote against selected-item captions and return its time range |
 | `GET` | `/api/v1/gifs/{id}` | Serve an original GoGIF asset; zero-config links last for the server session and MemKV keeps records across restarts |
 | `POST` | `/api/v1/gifs/plan` | Inspect the prompt-derived animation plan |
-| `POST` | `/api/v1/gifs/generate` | Stream an `image/gif`; `generation_mode` is `semantic`, `studio`, or `fast` |
+| `POST` | `/api/v1/gifs/generate` | Stream an `image/gif`; the PWA always sends `generation_mode=semantic` (`fast` and `studio` are developer-only compatibility modes) |
 | `POST` | `/api/v1/gifs/generate-from-reference` | Revalidate, temporarily fetch, locally transform, then delete an approved provider reference |
 | `POST` | `/api/v1/gifs/generate-from-upload` | Edit a bounded request-scoped JPEG, PNG, GIF, MP4, MOV, M4V, or WebM; optionally optimize to a target size |
 | `POST` | `/api/v1/models/generate` | Run an allowlisted ComfyUI 3D recipe and stream a validated `model/gltf-binary` GLB |
@@ -263,10 +262,10 @@ The first release is intentionally a modular monolith:
 
 ```text
 phone / desktop PWA ─┐
-browser extension ───┼──> Go HTTP API on the Mac ──┬─> Comfy Cloud FLUX ──> Go animation/GIF
-web browser ─────────┘                              ├─> Studio Local: Blender → Unity → Unreal → FFmpeg
-                                                   ├─> Comfy Cloud Tripo/Hunyuan ──> validated GLB
-                                                   └─> provider adapters ──> Wikimedia / GifCities / Prelinger / NASA / Yarn metadata
+browser extension ───┼──> Go HTTP API ──┬─> Comfy Cloud FLUX ──> Go animation/GIF
+web browser ─────────┘                   ├─> Comfy Cloud Tripo/Hunyuan ──> validated GLB
+                                        ├─> future Scene job ──> Blender ──> Unity OR Unreal ──> video/GIF
+                                        └─> provider adapters ──> Wikimedia / GifCities / Prelinger / NASA / Yarn metadata
 ```
 
 The planner speaks a small, validated animation-spec contract. That keeps model vendors, renderers, and future native clients replaceable. The OpenAI adapter uses the Responses API with Structured Outputs, following the [official OpenAI API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).

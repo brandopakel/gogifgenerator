@@ -127,10 +127,10 @@ func NewCatalog(options CatalogOptions) Catalog {
 		proCents = 3900
 	}
 	plans := []Plan{
-		{ID: PlanGuest, Name: "Guest", Description: "Try Fast Local before signing up.", Currency: "usd", Credits: 3, CreditPeriod: "day", MaxDimension: 320, MaxFrames: 8},
+		{ID: PlanGuest, Name: "Guest", Description: "Search and edit before signing up for cloud creation.", Currency: "usd", Credits: 3, CreditPeriod: "day", MaxDimension: 320, MaxFrames: 8},
 		{ID: PlanFree, Name: "Free", Description: "A private starter library and a few realistic creations.", Currency: "usd", Credits: 10, CreditPeriod: "month", MaxDimension: 480, MaxFrames: 12, LibraryAssets: 25, LibraryBytes: 100 << 20, Semantic: true},
 		{ID: PlanCreator, Name: "Creator", Description: "High-quality GIFs, 3D creation, and a larger private library.", Currency: "usd", MonthlyPriceCents: creatorCents, Credits: 150, CreditPeriod: "month", MaxDimension: 720, MaxFrames: 18, LibraryAssets: 500, LibraryBytes: 5 << 30, Semantic: true, Models3D: true, Paid: true, PurchaseEnabled: options.CreatorPriceID != "", StripePriceID: options.CreatorPriceID},
-		{ID: PlanPro, Name: "Pro", Description: "Maximum quality, more 3D capacity, and Studio access where available.", Currency: "usd", MonthlyPriceCents: proCents, Credits: 500, CreditPeriod: "month", MaxDimension: 720, MaxFrames: 24, LibraryAssets: 2500, LibraryBytes: 25 << 30, Semantic: true, Models3D: true, Studio: true, Paid: true, PurchaseEnabled: options.ProPriceID != "", StripePriceID: options.ProPriceID},
+		{ID: PlanPro, Name: "Pro", Description: "Maximum quality, more 3D capacity, and experimental scene tools where available.", Currency: "usd", MonthlyPriceCents: proCents, Credits: 500, CreditPeriod: "month", MaxDimension: 720, MaxFrames: 24, LibraryAssets: 2500, LibraryBytes: 25 << 30, Semantic: true, Models3D: true, Studio: true, Paid: true, PurchaseEnabled: options.ProPriceID != "", StripePriceID: options.ProPriceID},
 		{ID: PlanLegacy, Name: "Local owner", Description: "Unmetered self-hosted compatibility mode.", Currency: "usd", Credits: 1 << 30, CreditPeriod: "month", MaxDimension: 720, MaxFrames: 60, LibraryAssets: 1 << 30, LibraryBytes: 1 << 60, Semantic: true, Models3D: true, Studio: true},
 	}
 	result := Catalog{plans: make(map[string]Plan, len(plans))}
@@ -193,9 +193,9 @@ func (c Catalog) Quote(principal Principal, operation Operation) (Quote, error) 
 	mode := strings.ToLower(strings.TrimSpace(operation.Mode))
 	if mode == "semantic" && !plan.Semantic {
 		if !principal.Authenticated {
-			return Quote{Plan: plan}, fmt.Errorf("%w: create a free account to use Realistic AI", ErrSignInRequired)
+			return Quote{Plan: plan}, fmt.Errorf("%w: create a free account to generate subject-aware GIFs", ErrSignInRequired)
 		}
-		return Quote{Plan: plan}, fmt.Errorf("%w: Realistic AI is not included in %s", ErrUpgradeRequired, plan.Name)
+		return Quote{Plan: plan}, fmt.Errorf("%w: subject-aware GIF creation is not included in %s", ErrUpgradeRequired, plan.Name)
 	}
 	if operation.Kind == "model" && !plan.Models3D {
 		if !principal.Authenticated {
@@ -204,7 +204,7 @@ func (c Catalog) Quote(principal Principal, operation Operation) (Quote, error) 
 		return Quote{Plan: plan}, fmt.Errorf("%w: 3D creation requires Creator or Pro", ErrUpgradeRequired)
 	}
 	if mode == "studio" && !plan.Studio {
-		return Quote{Plan: plan}, fmt.Errorf("%w: Studio Local requires Pro", ErrUpgradeRequired)
+		return Quote{Plan: plan}, fmt.Errorf("%w: the experimental scene renderer requires Pro", ErrUpgradeRequired)
 	}
 	cost := 1
 	switch {

@@ -941,20 +941,20 @@ func (s *server) generate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, errSemanticUnavailable):
-			writeError(w, http.StatusServiceUnavailable, "Realistic AI generation is not configured. Configure OpenAI Images or ComfyUI for recognizable subjects and scenes; Fast local is limited to abstract motion.")
+			writeError(w, http.StatusServiceUnavailable, "Subject-aware GIF creation is not configured. Configure ComfyUI or OpenAI Images on the server.")
 		case errors.Is(err, errStudioUnavailable):
-			writeError(w, http.StatusServiceUnavailable, "Studio Local is not configured. Choose Realistic AI for hosted generation without launching local 3D editors.")
+			writeError(w, http.StatusServiceUnavailable, "The experimental scene renderer is not configured. Ordinary GIF creation does not launch local 3D editors.")
 		case errors.Is(err, errStudioGeneration):
 			s.options.Logger.Warn("studio GIF generation failed", "error", err)
-			writeError(w, http.StatusBadGateway, "Studio Local could not finish the render. Choose Realistic AI to avoid running Blender, Unity, and Unreal on this computer.")
+			writeError(w, http.StatusBadGateway, "The experimental scene renderer could not finish the developer render.")
 		case errors.Is(err, errSemanticGeneration):
 			s.options.Logger.Warn("semantic GIF generation failed", "error", err)
-			message := "The semantic image generator could not create this scene. Try again; Fast local only makes abstract motion and cannot preserve this subject."
+			message := "The semantic image generator could not create this scene. Try again."
 			if errors.Is(err, imagegen.ErrUnavailable) {
 				descriptor := imageGeneratorDescriptorValue(s.options.ImageGenerator)
 				switch descriptor.ID {
 				case "comfyui-local":
-					message = "ComfyUI Desktop is not running or stopped responding. Open ComfyUI, then try Realistic AI again. Fast local cannot replace a recognizable subject."
+					message = "ComfyUI Desktop is not running or stopped responding. Open ComfyUI, then try again."
 				case "comfyui-partner-flux-ultra":
 					message = "The hosted Comfy GPU service is temporarily unavailable. Check the Comfy subscription and credits, then try again."
 				}

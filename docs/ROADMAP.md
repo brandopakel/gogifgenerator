@@ -73,14 +73,15 @@ Exit condition: the same account, projects, and generation API work across suppo
 
 ## Milestone 5 — high-powered engine
 
-- Asynchronous render jobs and progress events
+- Persistent Scene projects with assets, cameras, lights, animation, VFX, provenance, and engine target
+- Asynchronous scene jobs, progress events, cancellation, retry, and worker health
 - Image/multiview-to-3D, 3D rigging/retargeting, smart topology, and direct Blender/Unity/Unreal import after prompt-to-GLB evaluation
-- Composable render-stage contract and local runners: diffusion/reference imagery, textured Blender FBX geometry, Unity 6.3 portable motion/VFX, Unreal Engine 5 cinematic beauty frames, semantic-preserving Go pass compositing, and FFmpeg adaptive-palette encoding (implemented and functionally validated on macOS; production-class hardware validation remains)
+- Blender asset preparation followed by a deliberate Unity 6.3 **or** Unreal Engine 5 scene target; the old all-editors sequence remains only a validated developer proof-of-concept
 - Capability-based engine selection and reproducible intermediate assets; do not combine independently rendered frames without an explicit compositing contract
 - Reproducible projects and local storage lifecycle policies
 - Optional object storage/CDN only for a funded hosted service
 - Isolated CPU/GPU worker pools and renderer capability negotiation
-- Animated WebP/AVIF and MP4 alongside GIF
+- MP4/WebM scene masters plus optional GIF and animated WebP/AVIF derivatives
 - Rate limits, budgets, abuse prevention, moderation, and enterprise controls
 - Load tests and SLOs based on production traffic
 

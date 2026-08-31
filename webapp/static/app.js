@@ -22,8 +22,6 @@ const elements = {
   reroll: document.querySelector('#reroll-button'),
   copy: document.querySelector('#copy-button'),
   share: document.querySelector('#share-button'),
-  generationModeField: document.querySelector('#generation-mode-field'),
-  generationMode: document.querySelector('#generation-mode-control'),
 	generationControls: document.querySelector('#generation-controls'),
   presetField: document.querySelector('#preset-field'),
   preset: document.querySelector('#preset-control'),
@@ -138,17 +136,6 @@ async function loadConfig() {
       elements.videoCapability.textContent = 'Video requires FFmpeg.';
       elements.videoCapability.hidden = false;
     }
-    const semanticOption = elements.generationMode.querySelector('option[value="semantic"]');
-    const semanticGenerator = state.config.image_generator?.semantic;
-    semanticOption.textContent = semanticGenerator
-      ? `Realistic AI · ${state.config.image_generator.label}`
-      : 'Realistic AI · setup required';
-	const studioOption = elements.generationMode.querySelector('option[value="studio"]');
-	const studioEnabled = Boolean(state.config.quality_pipeline?.enabled);
-	studioOption.textContent = studioEnabled
-	  ? 'Studio Local · Blender + Unity + Unreal'
-	  : 'Studio Local · setup required';
-	studioOption.disabled = !studioEnabled;
 	const recipes = state.config.model_generator?.recipes || [];
 	elements.modelRecipe.replaceChildren();
 	if (recipes.length) {
@@ -255,11 +242,6 @@ function applyPlanControls() {
   if (elements.quality.selectedOptions[0]?.disabled) {
     elements.quality.value = [...elements.quality.options].filter((option) => !option.disabled).at(-1)?.value || elements.quality.value;
   }
-  const semantic = elements.generationMode.querySelector('option[value="semantic"]');
-  const studio = elements.generationMode.querySelector('option[value="studio"]');
-  semantic.disabled = !plan.semantic || !state.config?.image_generator?.semantic;
-  studio.disabled = !plan.studio || !state.config?.quality_pipeline?.enabled;
-  if (elements.generationMode.selectedOptions[0]?.disabled) elements.generationMode.value = 'fast';
 	const modelOption = elements.createKind.querySelector('option[value="model"]');
 	modelOption.disabled = !plan.models_3d;
 	if (state.mode === 'model' && !plan.models_3d) setMode('create');
@@ -288,7 +270,7 @@ function renderPricing() {
       `Up to ${plan.max_dimension}px and ${plan.max_frames} frames`,
       `${plan.library_assets.toLocaleString()} private library items`,
       plan.models_3d ? '3D model creation included' : 'GIF creation',
-      plan.studio ? 'Studio Local access where available' : 'Private-by-default creations',
+      plan.studio ? 'Experimental scene tools when available' : 'Private-by-default creations',
     ];
     for (const value of featureValues) {
       const item = document.createElement('li');
@@ -636,7 +618,6 @@ function setMode(mode) {
   elements.reroll.textContent = editing ? 'Re-export' : 'Reroll';
   elements.presetField.hidden = !editing;
   elements.targetSizeField.hidden = !editing;
-	elements.generationModeField.hidden = editing || modeling;
 	elements.generationControls.hidden = modeling;
 	elements.prompt.maxLength = editing ? 42 : modeling ? 1024 : 500;
   elements.previewShell.classList.toggle('editing', editing && Boolean(state.uploadFile) && !state.resultBlob);
@@ -705,40 +686,8 @@ async function generateModel(prompt, reroll = false) {
 	}
 }
 
-function explicitlyRequestsAbstractMotion(prompt) {
-  const value = prompt.toLowerCase();
-  return [
-    /\babstract (animation|motion|loop|shapes?|pattern|visuals?)\b/,
-    /\bgeometric (animation|motion|loop|shapes?|pattern|visuals?)\b/,
-    /\b(motion graphics?|particle (animation|field|loop)|audio visuali[sz]er|screensaver)\b/,
-    /\b(animated )?(color gradient|line pattern|shape pattern)\b/,
-  ].some((pattern) => pattern.test(value));
-}
-
-function generationModeForPrompt(prompt) {
-  const selected = elements.generationMode.value;
-  if (selected !== 'fast' || explicitlyRequestsAbstractMotion(prompt)) return selected;
-  const semanticOption = elements.generationMode.querySelector('option[value="semantic"]');
-  const semanticAvailable = Boolean(state.config?.image_generator?.semantic) && !semanticOption.disabled;
-  if (semanticAvailable) {
-    elements.generationMode.value = 'semantic';
-    showToast('Fast local only makes abstract motion—using Realistic AI for this subject.');
-    return 'semantic';
-  }
-  showToast('Fast local only creates abstract shapes. Realistic AI is required for recognizable subjects and scenes.');
-  if (state.account?.enabled && !state.account?.authenticated) showPricing();
-  return '';
-}
-
 async function generate(prompt, reroll = false) {
-  const generationMode = generationModeForPrompt(prompt);
-  if (!generationMode) return;
-  const workingMessage = generationMode === 'studio'
-    ? 'Rendering locally in Blender, Unity, and Unreal…'
-    : generationMode === 'semantic'
-      ? 'Generating the scene in Comfy Cloud…'
-      : 'Animating abstract shapes locally…';
-  setWorking(true, workingMessage);
+  setWorking(true, 'Generating the scene in Comfy Cloud…');
   if (reroll) state.seed = Date.now();
   try {
     const size = Number(elements.size.value);
@@ -749,7 +698,7 @@ async function generate(prompt, reroll = false) {
       frames: Number(elements.quality.value),
       delay_ms: Number(elements.tempo.value),
       seed: state.seed,
-      generation_mode: generationMode,
+      generation_mode: 'semantic',
     };
     let endpoint = '/api/v1/gifs/generate';
     if (state.reference) {
@@ -1927,8 +1876,7 @@ function searchCard(item) {
 			card.append(related);
 		}
 	}
-	const canRemix = (state.config?.image_generator?.supports_references
-		|| (state.config?.quality_pipeline?.enabled && state.config?.quality_pipeline?.supports_references))
+	const canRemix = state.config?.image_generator?.supports_references
 		&& item.transformPolicy === 'allowed'
 		&& item.derivatives === 'allowed'
 		&& item.allowedHandling?.includes('temporary-transform')

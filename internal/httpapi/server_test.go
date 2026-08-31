@@ -272,11 +272,11 @@ func TestSemanticGenerationNeverFallsBackToAbstractShapes(t *testing.T) {
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), "Realistic AI generation is not configured") {
+	if !strings.Contains(response.Body.String(), "Subject-aware GIF creation is not configured") {
 		t.Fatalf("body = %s", response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), "Fast local is limited to abstract motion") {
-		t.Fatalf("semantic error recommends an invalid abstract fallback: %s", response.Body.String())
+	if strings.Contains(response.Body.String(), "Fast local") || strings.Contains(response.Body.String(), "Studio Local") {
+		t.Fatalf("semantic error references a hidden renderer: %s", response.Body.String())
 	}
 }
 
@@ -586,7 +586,7 @@ func TestStudioModeExplainsMissingLocalPipeline(t *testing.T) {
     }`))
 	response := httptest.NewRecorder()
 	New(Options{Planner: planner.Local{}, ImageGenerator: &recordingImageGenerator{}}).ServeHTTP(response, request)
-	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "Studio Local is not configured") {
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "experimental scene renderer is not configured") {
 		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
 	}
 }
