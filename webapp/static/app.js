@@ -57,6 +57,7 @@ const elements = {
   newCollection: document.querySelector('#new-collection-button'),
   collectionDialog: document.querySelector('#collection-dialog'),
   collectionForm: document.querySelector('#collection-form'),
+  collectionCancel: document.querySelector('#collection-cancel-button'),
   collectionName: document.querySelector('#collection-name'),
   pricingDialog: document.querySelector('#pricing-dialog'),
   pricingGrid: document.querySelector('#pricing-grid'),
@@ -2080,8 +2081,8 @@ elements.newCollection.addEventListener('click', () => {
   if (typeof elements.collectionDialog.showModal === 'function') elements.collectionDialog.showModal();
   elements.collectionName.focus();
 });
+elements.collectionCancel.addEventListener('click', () => elements.collectionDialog.close());
 elements.collectionForm.addEventListener('submit', async (event) => {
-  if (event.submitter?.value === 'cancel') return;
   event.preventDefault();
   const name = elements.collectionName.value.trim();
   if (!name) return;

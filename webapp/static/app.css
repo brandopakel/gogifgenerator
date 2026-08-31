@@ -28,6 +28,8 @@ body {
 button, textarea, select, input { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { color: inherit; }
+button:not(:disabled), a[href], summary, select:not(:disabled), input[type="checkbox"]:not(:disabled), input[type="range"]:not(:disabled) { cursor: pointer; }
+button:disabled, select:disabled, [aria-disabled="true"] { cursor: not-allowed; }
 button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible {
   outline: 3px solid var(--blue);
   outline-offset: 3px;
@@ -208,6 +210,7 @@ input[type="range"] { width: 100%; min-height: 32px; accent-color: var(--acid); 
 .library-usage { margin: 7px 0 0; color: var(--muted); font-size: .76rem; }
 .library-tools { display: flex; gap: 8px; }
 .library-tools select { min-width: 145px; }
+.library-tools button { white-space: nowrap; }
 .collection-list { display: flex; gap: 8px; overflow-x: auto; padding: 0 0 14px; scrollbar-width: thin; }
 .collection-chip { flex: 0 0 auto; padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: .68rem; font-weight: 800; cursor: pointer; }
 .library-message { padding: 42px 12px; color: var(--muted); text-align: center; }
@@ -292,7 +295,8 @@ footer a { color: inherit; }
   .credit-meter { display: none; }
   .library-heading { align-items: stretch; flex-direction: column; }
   .library-tools { width: 100%; }
-  .library-tools select, .library-tools button { flex: 1; min-width: 0; }
+  .library-tools select { flex: 1 1 0; min-width: 0; }
+  .library-tools button { flex: 0 0 auto; min-width: max-content; padding-inline: 13px; }
   .library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .pricing-grid { grid-template-columns: 1fr; }
 }

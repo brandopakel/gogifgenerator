@@ -202,6 +202,34 @@ func TestAccountIsThePermanentFarRightHeaderAction(t *testing.T) {
 	}
 }
 
+func TestCollectionCancelAndGlobalInteractionCursors(t *testing.T) {
+	index, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles, err := fs.ReadFile(Files(), "app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(index), `id="collection-cancel-button" class="secondary-button" type="button"`) {
+		t.Fatal("collection Cancel remains a validating form submission")
+	}
+	for _, marker := range []string{"collectionCancel: document.querySelector", "elements.collectionDialog.close()"} {
+		if !strings.Contains(string(script), marker) {
+			t.Fatalf("collection Cancel behavior does not contain %q", marker)
+		}
+	}
+	for _, marker := range []string{"button:not(:disabled), a[href], summary, select:not(:disabled)", ".library-tools button { white-space: nowrap; }", "min-width: max-content"} {
+		if !strings.Contains(string(styles), marker) {
+			t.Fatalf("interaction styling does not contain %q", marker)
+		}
+	}
+}
+
 func TestStylesRespectReducedMotionAndVisibleFocus(t *testing.T) {
 	data, err := fs.ReadFile(Files(), "app.css")
 	if err != nil {
