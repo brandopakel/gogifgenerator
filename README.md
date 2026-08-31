@@ -58,7 +58,7 @@ For richer procedural art using the Blender already installed on this computer:
 GOGIF_IMAGE_GENERATOR=blender make run
 ```
 
-Blender is not a diffusion model: it creates an original prompt-seeded 3D scene without a model download, account, or network call. It cannot understand a character or location from text by itself. For semantic text-to-image generation and licensed reference remixes, use local ComfyUI or the separately enabled GPT Image adapter in [Local generation](docs/LOCAL_GENERATION.md). The PWA's **Realistic AI** mode is fail-closed: if no semantic generator is configured, it explains that setup is required instead of silently returning abstract geometry. **Fast local** remains available explicitly.
+Blender is not a diffusion model: it creates an original prompt-seeded 3D scene without a model download, account, or network call. It cannot understand a character or location from text by itself. For semantic text-to-image generation and licensed reference remixes, use local ComfyUI or the separately enabled GPT Image adapter in [Local generation](docs/LOCAL_GENERATION.md). The PWA's **Realistic AI** mode is fail-closed: if no semantic generator is configured, it explains that setup is required instead of silently returning abstract geometry. **Abstract only** remains available for prompts explicitly requesting geometric motion, shapes, patterns, particles, gradients, or visualizers. When that renderer is selected for a recognizable subject or scene, the PWA routes to Realistic AI if the user's plan and configured backend allow it; otherwise it stops with a clear explanation.
 
 The multi-engine quality pipeline is implemented behind an explicit opt-in. The current test Mac has 8 GB of unified memory plus Blender 5.2, Unity 6000.3.23f1, Unreal Engine 5.8.2, FFmpeg 9, Xcode 26.1.1, and Apple's Metal toolchain. A real request passed through every stage and returned `comfyui-partner-flux-ultra+blender+unity-6.3+unreal-5+ffmpeg+local`. **Realistic AI** is the normal cloud-first path; **Studio Local** is the only prompt mode that launches all three editors. See [Cinematic pipeline](docs/CINEMATIC_PIPELINE.md).
 
@@ -70,7 +70,7 @@ The current private test deployment is self-hosted on the Mac and exposed to the
 | --- | --- | --- | --- |
 | **Realistic AI** (default) | FLUX source image on Comfy Cloud; bounded Go animation and GIF encoding on the Mac | Low to moderate | Yes, one hosted image workflow |
 | **Studio Local** | Comfy Cloud source, then Blender → Unity → Unreal → FFmpeg on the Mac | Very high; editor startup and rendering can saturate an 8-GB Mac | Yes, plus local compute |
-| **Fast local** | Procedural Go rendering only | Low | No |
+| **Abstract only** | Procedural shapes, patterns, type, and motion only; no semantic subject understanding | Low | No |
 | **3D** | Tripo/Hunyuan Partner Node on Comfy Cloud; GLB validation/storage on the Mac | Low during inference; large models still use browser and disk memory | Yes, one hosted 3D workflow |
 
 If the Mac becomes hot, swaps heavily, or the UI stutters, confirm that **Visual source** is set to **Realistic AI**, not **Studio Local**. Studio jobs are serialized but intentionally resource-intensive. The server may keep Studio configured so it remains selectable; merely configuring it no longer sends ordinary Realistic AI requests through the editors.

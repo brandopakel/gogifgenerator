@@ -248,6 +248,46 @@ func TestLibraryIsOnlyOpenedFromAccount(t *testing.T) {
 	}
 }
 
+func TestResultActionsNeverWrap(t *testing.T) {
+	styles, err := fs.ReadFile(Files(), "app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{
+		".result-actions { display: flex; flex: 0 0 auto; flex-wrap: nowrap;",
+		"grid-template-columns: repeat(4, minmax(0, 1fr))",
+		".result-actions > * { min-width: 0; padding-inline: 4px; font-size: .62rem; }",
+	} {
+		if !strings.Contains(string(styles), marker) {
+			t.Fatalf("result action layout does not contain %q", marker)
+		}
+	}
+}
+
+func TestFastLocalCannotSilentlyReplaceSemanticScenes(t *testing.T) {
+	index, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(index), `Abstract only · shapes + type`) {
+		t.Fatal("Fast local is not labeled as an abstract-only renderer")
+	}
+	for _, marker := range []string{
+		"function explicitlyRequestsAbstractMotion(prompt)",
+		"function generationModeForPrompt(prompt)",
+		"using Realistic AI for this subject",
+		"Realistic AI is required for recognizable subjects and scenes",
+	} {
+		if !strings.Contains(string(script), marker) {
+			t.Fatalf("semantic quality guard does not contain %q", marker)
+		}
+	}
+}
+
 func TestStylesRespectReducedMotionAndVisibleFocus(t *testing.T) {
 	data, err := fs.ReadFile(Files(), "app.css")
 	if err != nil {

@@ -275,6 +275,9 @@ func TestSemanticGenerationNeverFallsBackToAbstractShapes(t *testing.T) {
 	if !strings.Contains(response.Body.String(), "Realistic AI generation is not configured") {
 		t.Fatalf("body = %s", response.Body.String())
 	}
+	if !strings.Contains(response.Body.String(), "Fast local is limited to abstract motion") {
+		t.Fatalf("semantic error recommends an invalid abstract fallback: %s", response.Body.String())
+	}
 }
 
 func TestSemanticGenerationUsesSemanticImageGenerator(t *testing.T) {

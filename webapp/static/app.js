@@ -705,13 +705,39 @@ async function generateModel(prompt, reroll = false) {
 	}
 }
 
+function explicitlyRequestsAbstractMotion(prompt) {
+  const value = prompt.toLowerCase();
+  return [
+    /\babstract (animation|motion|loop|shapes?|pattern|visuals?)\b/,
+    /\bgeometric (animation|motion|loop|shapes?|pattern|visuals?)\b/,
+    /\b(motion graphics?|particle (animation|field|loop)|audio visuali[sz]er|screensaver)\b/,
+    /\b(animated )?(color gradient|line pattern|shape pattern)\b/,
+  ].some((pattern) => pattern.test(value));
+}
+
+function generationModeForPrompt(prompt) {
+  const selected = elements.generationMode.value;
+  if (selected !== 'fast' || explicitlyRequestsAbstractMotion(prompt)) return selected;
+  const semanticOption = elements.generationMode.querySelector('option[value="semantic"]');
+  const semanticAvailable = Boolean(state.config?.image_generator?.semantic) && !semanticOption.disabled;
+  if (semanticAvailable) {
+    elements.generationMode.value = 'semantic';
+    showToast('Fast local only makes abstract motion—using Realistic AI for this subject.');
+    return 'semantic';
+  }
+  showToast('Fast local only creates abstract shapes. Realistic AI is required for recognizable subjects and scenes.');
+  if (state.account?.enabled && !state.account?.authenticated) showPricing();
+  return '';
+}
+
 async function generate(prompt, reroll = false) {
-  const generationMode = elements.generationMode.value;
+  const generationMode = generationModeForPrompt(prompt);
+  if (!generationMode) return;
   const workingMessage = generationMode === 'studio'
     ? 'Rendering locally in Blender, Unity, and Unreal…'
     : generationMode === 'semantic'
       ? 'Generating the scene in Comfy Cloud…'
-      : 'Animating locally…';
+      : 'Animating abstract shapes locally…';
   setWorking(true, workingMessage);
   if (reroll) state.seed = Date.now();
   try {

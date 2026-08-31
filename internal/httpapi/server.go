@@ -941,7 +941,7 @@ func (s *server) generate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, errSemanticUnavailable):
-			writeError(w, http.StatusServiceUnavailable, "Realistic AI generation is not configured. Configure OpenAI Images or ComfyUI, or choose Fast local.")
+			writeError(w, http.StatusServiceUnavailable, "Realistic AI generation is not configured. Configure OpenAI Images or ComfyUI for recognizable subjects and scenes; Fast local is limited to abstract motion.")
 		case errors.Is(err, errStudioUnavailable):
 			writeError(w, http.StatusServiceUnavailable, "Studio Local is not configured. Choose Realistic AI for hosted generation without launching local 3D editors.")
 		case errors.Is(err, errStudioGeneration):
@@ -949,12 +949,12 @@ func (s *server) generate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, "Studio Local could not finish the render. Choose Realistic AI to avoid running Blender, Unity, and Unreal on this computer.")
 		case errors.Is(err, errSemanticGeneration):
 			s.options.Logger.Warn("semantic GIF generation failed", "error", err)
-			message := "The semantic image generator could not create this scene. Try again or choose Fast local."
+			message := "The semantic image generator could not create this scene. Try again; Fast local only makes abstract motion and cannot preserve this subject."
 			if errors.Is(err, imagegen.ErrUnavailable) {
 				descriptor := imageGeneratorDescriptorValue(s.options.ImageGenerator)
 				switch descriptor.ID {
 				case "comfyui-local":
-					message = "ComfyUI Desktop is not running or stopped responding. Open ComfyUI, then try Realistic AI again—or choose Fast local."
+					message = "ComfyUI Desktop is not running or stopped responding. Open ComfyUI, then try Realistic AI again. Fast local cannot replace a recognizable subject."
 				case "comfyui-partner-flux-ultra":
 					message = "The hosted Comfy GPU service is temporarily unavailable. Check the Comfy subscription and credits, then try again."
 				}
