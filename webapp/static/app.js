@@ -62,6 +62,18 @@ const elements = {
   pricingGrid: document.querySelector('#pricing-grid'),
   manageBilling: document.querySelector('#manage-billing-button'),
   logout: document.querySelector('#logout-button'),
+  accountDialog: document.querySelector('#account-dialog'),
+  accountTitle: document.querySelector('#account-title'),
+  accountDescription: document.querySelector('#account-description'),
+  accountStats: document.querySelector('#account-stats'),
+  accountPlan: document.querySelector('#account-plan'),
+  accountCredits: document.querySelector('#account-credits'),
+  accountLibraryUsage: document.querySelector('#account-library-usage'),
+  accountAuthLink: document.querySelector('#account-auth-link'),
+  accountLibraryButton: document.querySelector('#account-library-button'),
+  accountPlansButton: document.querySelector('#account-plans-button'),
+  accountBillingButton: document.querySelector('#account-billing-button'),
+  accountLogoutButton: document.querySelector('#account-logout-button'),
   referenceChip: document.querySelector('#reference-chip'),
   referenceLabel: document.querySelector('#reference-label'),
   referenceClear: document.querySelector('#reference-clear'),
@@ -175,14 +187,16 @@ function renderAccount() {
   const enabled = Boolean(data?.enabled);
   elements.pricing.hidden = !enabled;
   elements.libraryTab.hidden = !enabled;
-  elements.signIn.hidden = !enabled || data.authenticated || data.auth_mode !== 'oidc';
-  elements.account.hidden = !enabled || !data.authenticated;
+  elements.signIn.hidden = true;
+  elements.account.hidden = false;
   elements.logout.hidden = !enabled || !data.authenticated || data.auth_mode !== 'oidc';
   elements.manageBilling.hidden = !enabled || !data.authenticated || !data.billing_enabled || !data.subscription?.has_customer;
   if (data?.authenticated) {
-    const label = data.account?.name || data.account?.email || 'Account';
-    elements.account.textContent = label.length > 18 ? `${label.slice(0, 17)}…` : label;
+    elements.account.setAttribute('aria-label', `Open account for ${data.account?.name || data.account?.email || 'current user'}`);
+  } else {
+    elements.account.setAttribute('aria-label', data?.auth_mode === 'oidc' ? 'Create or open an account' : 'Open account information');
   }
+  elements.account.textContent = 'Account';
   if (enabled && state.usage) {
     elements.creditMeter.textContent = `${state.usage.remaining} credits`;
     elements.creditMeter.hidden = false;
@@ -190,6 +204,44 @@ function renderAccount() {
     elements.creditMeter.hidden = true;
   }
   if (enabled && !data.authenticated && state.mode === 'library') renderLibrarySignIn();
+}
+
+function renderAccountDialog() {
+  const data = state.account;
+  const enabled = Boolean(data?.enabled);
+  const authenticated = Boolean(data?.authenticated);
+  const oidc = data?.auth_mode === 'oidc';
+  const local = data?.auth_mode === 'local';
+  const identity = data?.account || {};
+  elements.accountAuthLink.hidden = !(enabled && oidc && !authenticated);
+  elements.accountLibraryButton.hidden = !authenticated;
+  elements.accountPlansButton.hidden = !enabled;
+  elements.accountBillingButton.hidden = !authenticated || !data?.billing_enabled || !data?.subscription?.has_customer;
+  elements.accountLogoutButton.hidden = !authenticated || !oidc;
+  elements.accountStats.hidden = !authenticated;
+  if (!enabled) {
+    elements.accountTitle.textContent = 'Account';
+    elements.accountDescription.textContent = 'Account creation is not connected on this deployment yet. An identity provider must be configured before public sign-up can open.';
+    return;
+  }
+  if (!authenticated) {
+    elements.accountTitle.textContent = 'Create your account';
+    elements.accountDescription.textContent = 'Sign up to save creations, sync your private library, and manage generation credits.';
+    return;
+  }
+  elements.accountTitle.textContent = identity.name || identity.email || 'Your account';
+  elements.accountDescription.textContent = local
+    ? 'You are using the private owner account for testing. Public multi-user sign-up remains disabled.'
+    : identity.email || 'Your creations and plan are connected to this account.';
+  elements.accountPlan.textContent = data.plan?.name || 'Free';
+  elements.accountCredits.textContent = state.usage ? state.usage.remaining.toLocaleString() : local ? 'Unmetered' : '—';
+  const library = data.library_usage;
+  elements.accountLibraryUsage.textContent = library ? `${library.items.toLocaleString()} items` : '0 items';
+}
+
+function showAccount() {
+  renderAccountDialog();
+  if (typeof elements.accountDialog.showModal === 'function') elements.accountDialog.showModal();
 }
 
 function applyPlanControls() {
@@ -1995,9 +2047,18 @@ elements.form.addEventListener('submit', submitPrompt);
 		elements.prompt.focus();
 	});
 elements.pricing.addEventListener('click', showPricing);
-elements.account.addEventListener('click', showPricing);
+elements.account.addEventListener('click', showAccount);
 elements.manageBilling.addEventListener('click', openBillingPortal);
-elements.logout.addEventListener('click', async () => {
+elements.accountBillingButton.addEventListener('click', openBillingPortal);
+elements.accountLibraryButton.addEventListener('click', () => {
+  elements.accountDialog.close();
+  setMode('library');
+});
+elements.accountPlansButton.addEventListener('click', () => {
+  elements.accountDialog.close();
+  showPricing();
+});
+async function signOut() {
   try {
     const response = await fetch('/api/v1/auth/logout', { method: 'POST' });
     if (!response.ok) throw new Error('Sign out failed.');
@@ -2005,7 +2066,9 @@ elements.logout.addEventListener('click', async () => {
   } catch (error) {
     showToast(error.message);
   }
-});
+}
+elements.logout.addEventListener('click', signOut);
+elements.accountLogoutButton.addEventListener('click', signOut);
 elements.libraryKind.addEventListener('change', () => loadLibrary(true));
 elements.libraryMore.addEventListener('click', () => loadLibrary(false));
 elements.newCollection.addEventListener('click', () => {

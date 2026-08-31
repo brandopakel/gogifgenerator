@@ -53,6 +53,8 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .brand { display: flex; gap: 10px; align-items: center; color: var(--ink); text-decoration: none; font-weight: 900; letter-spacing: -.04em; font-size: 1.2rem; }
 .brand-logo { display: block; width: 30px; height: 30px; border-radius: 8px; }
 .quiet-button { border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px; background: transparent; cursor: pointer; }
+.account-entry { border-color: var(--ink); background: var(--ink); color: var(--paper); font-weight: 850; }
+.account-entry:hover { filter: brightness(.9); }
 .account-actions { display: flex; align-items: center; gap: 8px; }
 .account-actions a { color: var(--ink); text-decoration: none; }
 .credit-meter { color: var(--acid); font-size: .68rem; font-weight: 850; letter-spacing: .04em; }
@@ -79,7 +81,13 @@ textarea::placeholder { color: #70737a; }
 .search-options select { width: auto; min-width: 150px; padding: 8px 31px 8px 10px; }
 .create-toolbar { position: relative; min-height: 33px; margin-top: 10px; }
 .controls.create-controls { padding: 0 3px; }
-.create-controls > summary { min-height: 33px; display: flex; align-items: center; }
+.create-controls > summary { min-height: 33px; display: flex; align-items: center; gap: 9px; margin-left: -10px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: rgb(255 255 255 / 3%); list-style: none; transition: background .16s, border-color .16s, color .16s; }
+.create-controls > summary::-webkit-details-marker { display: none; }
+.create-controls > summary::after { content: ""; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg) translate(-1px, -1px); transition: transform .16s; }
+.create-controls[open] > summary::after { transform: rotate(225deg) translate(-1px, -1px); }
+.create-controls > summary:hover { border-color: #555c68; background: rgb(255 255 255 / 7%); color: var(--ink); }
+.create-controls[open] > summary { border-color: rgb(232 255 71 / 38%); color: var(--ink); }
+.create-controls > summary:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
 .create-controls .control-grid { width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 8px; padding-top: 17px; border-top: 1px solid var(--line); }
 .create-output { position: absolute; top: 0; right: 0; margin-top: 0; }
 .upload-editor { max-width: 780px; margin: 13px auto 0; }
@@ -220,7 +228,7 @@ input[type="range"] { width: 100%; min-height: 32px; accent-color: var(--acid); 
 
 dialog { color: var(--ink); }
 dialog::backdrop { background: rgb(4 5 8 / 78%); backdrop-filter: blur(7px); }
-.pricing-dialog, .collection-dialog { width: min(920px, calc(100% - 28px)); max-height: calc(100svh - 28px); overflow: auto; padding: 22px; border: 1px solid #3b4049; border-radius: 20px; background: #111318; box-shadow: 0 28px 90px rgb(0 0 0 / 60%); }
+.pricing-dialog, .account-dialog, .collection-dialog { width: min(920px, calc(100% - 28px)); max-height: calc(100svh - 28px); overflow: auto; padding: 22px; border: 1px solid #3b4049; border-radius: 20px; background: #111318; box-shadow: 0 28px 90px rgb(0 0 0 / 60%); }
 .dialog-close-row { display: flex; justify-content: flex-end; }
 .pricing-copy { max-width: 580px; margin-bottom: 20px; }
 .pricing-copy p:last-child { color: var(--muted); line-height: 1.55; }
@@ -233,6 +241,16 @@ dialog::backdrop { background: rgb(4 5 8 / 78%); backdrop-filter: blur(7px); }
 .plan-card ul { flex: 1; margin: 0 0 18px; padding-left: 18px; color: var(--muted); font-size: .72rem; line-height: 1.8; }
 .plan-card button { width: 100%; }
 .manage-billing { margin-top: 16px; }
+.account-dialog { width: min(560px, calc(100% - 28px)); }
+.account-profile { max-width: 470px; }
+.account-profile h2 { margin: 4px 0; font-size: clamp(1.8rem, 5vw, 2.8rem); letter-spacing: -.055em; }
+.account-profile p:last-child { color: var(--muted); line-height: 1.55; }
+.account-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 22px 0; }
+.account-stats div { min-width: 0; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+.account-stats span, .account-stats strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-stats span { margin-bottom: 6px; color: var(--muted); font-size: .61rem; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.account-stats strong { font-size: .78rem; }
+.account-dialog-actions { flex-wrap: wrap; margin-top: 22px; }
 .collection-dialog { width: min(430px, calc(100% - 28px)); }
 .collection-dialog form { display: grid; gap: 14px; }
 .collection-dialog label { font-weight: 850; }

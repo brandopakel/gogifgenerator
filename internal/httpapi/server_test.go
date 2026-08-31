@@ -167,6 +167,13 @@ func TestLocalAccountCreationIsOwnedListedAndShareable(t *testing.T) {
 	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/gif" {
 		t.Fatalf("shared asset status = %d; headers = %#v", response.Code, response.Header())
 	}
+
+	request = httptest.NewRequest(http.MethodGet, "http://example.com/api/v1/account", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"library_usage":{"bytes":`) || !strings.Contains(response.Body.String(), `"items":1`) {
+		t.Fatalf("local account status = %d; body = %s", response.Code, response.Body.String())
+	}
 }
 
 func TestGuestCannotSpendOnSemanticGeneration(t *testing.T) {

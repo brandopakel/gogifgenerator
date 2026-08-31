@@ -171,12 +171,33 @@ func TestCreateFineTuneToolbarAndBrandUseOneCanonicalMark(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, marker := range []string{
-		".create-controls > summary { min-height: 33px; display: flex; align-items: center; }",
+		".create-controls > summary::-webkit-details-marker",
+		".create-controls > summary::after",
+		".create-controls[open] > summary::after",
 		"grid-template-columns: repeat(4, minmax(0, 1fr))",
 		"grid-template-columns: repeat(2, minmax(0, 1fr))",
 	} {
 		if !strings.Contains(string(styles), marker) {
 			t.Fatalf("app.css does not contain balanced create toolbar rule %q", marker)
+		}
+	}
+}
+
+func TestAccountIsThePermanentFarRightHeaderAction(t *testing.T) {
+	index, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(index)
+	install := strings.Index(page, `id="install-button"`)
+	accountButton := strings.Index(page, `id="account-button"`)
+	accountDialog := strings.Index(page, `id="account-dialog"`)
+	if install < 0 || accountButton < install || accountDialog < 0 {
+		t.Fatal("Account is not the far-right header action with a dedicated dialog")
+	}
+	for _, marker := range []string{`id="account-auth-link"`, `id="account-library-button"`, `id="account-plans-button"`} {
+		if !strings.Contains(page, marker) {
+			t.Fatalf("account UI does not contain %q", marker)
 		}
 	}
 }

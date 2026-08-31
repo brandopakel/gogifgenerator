@@ -26,8 +26,8 @@
         <span id="credit-meter" class="credit-meter" hidden></span>
         <button id="pricing-button" class="quiet-button" type="button" hidden>Plans</button>
         <a id="sign-in-button" class="quiet-button" href="/api/v1/auth/login" hidden>Sign in</a>
-        <button id="account-button" class="quiet-button" type="button" hidden></button>
         <button id="install-button" class="quiet-button" type="button" hidden>Install</button>
+        <button id="account-button" class="quiet-button account-entry" type="button">Account</button>
       </div>
     </header>
 
@@ -260,6 +260,27 @@
       <div id="pricing-grid" class="pricing-grid"></div>
       <button id="manage-billing-button" class="secondary-button manage-billing" type="button" hidden>Manage billing</button>
       <button id="logout-button" class="secondary-button manage-billing" type="button" hidden>Sign out</button>
+    </dialog>
+
+    <dialog id="account-dialog" class="account-dialog">
+      <form method="dialog" class="dialog-close-row"><button class="quiet-button" aria-label="Close account">Close</button></form>
+      <div class="account-profile">
+        <p class="eyebrow">YOUR GOGIF</p>
+        <h2 id="account-title">Account</h2>
+        <p id="account-description">Save creations, organize your library, and manage your plan.</p>
+      </div>
+      <div id="account-stats" class="account-stats" hidden>
+        <div><span>Plan</span><strong id="account-plan">—</strong></div>
+        <div><span>Credits</span><strong id="account-credits">—</strong></div>
+        <div><span>Library</span><strong id="account-library-usage">—</strong></div>
+      </div>
+      <div class="dialog-actions account-dialog-actions">
+        <a id="account-auth-link" class="primary-button" href="/api/v1/auth/login" hidden>Create account or sign in</a>
+        <button id="account-library-button" class="primary-button" type="button" hidden>Open library</button>
+        <button id="account-plans-button" class="secondary-button" type="button" hidden>View plans</button>
+        <button id="account-billing-button" class="secondary-button" type="button" hidden>Manage billing</button>
+        <button id="account-logout-button" class="secondary-button" type="button" hidden>Sign out</button>
+      </div>
     </dialog>
 
     <dialog id="collection-dialog" class="collection-dialog">

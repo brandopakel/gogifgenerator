@@ -309,11 +309,13 @@ func (s *server) accountStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if principal.Authenticated && s.options.Accounts != nil && !principal.Legacy {
-		if user, err := s.options.Accounts.Get(r.Context(), principal.UserID); err == nil {
-			response["subscription"] = map[string]any{
-				"status": user.SubscriptionStatus, "current_period_end": user.CurrentPeriodEnd,
-				"has_customer": user.StripeCustomerID != "",
+	if principal.Authenticated {
+		if s.options.Accounts != nil && !principal.Legacy {
+			if user, err := s.options.Accounts.Get(r.Context(), principal.UserID); err == nil {
+				response["subscription"] = map[string]any{
+					"status": user.SubscriptionStatus, "current_period_end": user.CurrentPeriodEnd,
+					"has_customer": user.StripeCustomerID != "",
+				}
 			}
 		}
 		if s.options.LibraryCatalog != nil {
