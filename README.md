@@ -29,6 +29,10 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Optional direct-to-GIPHY GIF and sticker search with required attribution and continuous pagination
 - MemKV-backed asset catalog with an ephemeral zero-config fallback
 - Content-addressed local blob storage for generated media
+- Optional OIDC accounts with signed, HTTP-only sessions and verified-email identity linking
+- Private per-user libraries with favorites, collections, pagination, soft deletion, byte/item limits, and expiring revocable share links
+- Server-enforced Guest, Free, Creator, and Pro entitlements with atomic-in-process credit reservations around every creation
+- Stripe-hosted subscription Checkout, Customer Portal, signed/idempotent webhooks, and automatic downgrade when a subscription no longer grants access
 - Browser-extension development shell
 - Bounds checking, request limits, graceful shutdown, tests, and CI
 
@@ -68,6 +72,57 @@ The current private test deployment is self-hosted on the Mac and exposed to the
 | **3D** | Tripo/Hunyuan Partner Node on Comfy Cloud; GLB validation/storage on the Mac | Low during inference; large models still use browser and disk memory | Yes, one hosted 3D workflow |
 
 If the Mac becomes hot, swaps heavily, or the UI stutters, confirm that **Visual source** is set to **Realistic AI**, not **Studio Local**. Studio jobs are serialized but intentionally resource-intensive. The server may keep Studio configured so it remains selectable; merely configuring it no longer sends ordinary Realistic AI requests through the editors.
+
+## Accounts, libraries, and sustainable generation
+
+The commercial account system is implemented but disabled by default. That preserves the current owner-testing deployment until an identity provider and Stripe account are deliberately connected. When accounts are enabled:
+
+- Guests can make three small **Fast local** GIFs per day. Guest work is not added to a server library and cannot consume Comfy credits.
+- Free accounts receive ten GoGIF credits per month, Realistic AI access up to 480 px / 12 frames, and a private 25-item / 100 MiB library.
+- Creator defaults to $15/month, 150 credits, 720 px / 18 frames, 3D creation, and 500 items / 5 GiB.
+- Pro defaults to $39/month, 500 credits, 720 px / 24 frames, 3D plus Studio Local, and 2,500 items / 25 GiB.
+
+GoGIF credits are an internal cost-control unit, not Comfy credits: Fast/edit costs 1, normal semantic generation costs 5, higher-quality semantic generation costs 8, Studio costs 30, and 3D costs 50. A reservation is written before work starts, consumed only after success, and released after failure. This prevents a failed Comfy job from charging the user while also preventing concurrent requests from overspending the same balance.
+
+These prices and allowances are launch hypotheses, not a guarantee of margin. Before a public launch, measure Comfy Partner-node cost, GIF encoding time, storage, egress, payment fees, failed-job rate, and support per operation; then adjust `GOGIF_CREATOR_PRICE_CENTS`, `GOGIF_PRO_PRICE_CENTS`, or the server-side credit schedule. Never expose raw provider credits or a user-supplied price in the browser.
+
+Authenticated creations are private and saved automatically. The Library supports GIF/3D filtering, favorites, collections, pagination, usage meters, soft deletion, and revocable seven-day share links. Direct `/api/v1/gifs/{id}` and `/api/v1/models/{id}` URLs enforce ownership; `/s/{token}` is the only public path for a private creation and the stored token is hashed.
+
+### Enable accounts
+
+GoGIF uses the standard [OIDC Authorization Code flow](https://openid.net/specs/openid-connect-core-1_0.html), so it can sit behind a provider such as Auth0, Clerk, Okta, Google, or another standards-compliant issuer. Register this callback with the provider: `https://YOUR_HOST/api/v1/auth/callback`. Then configure durable metadata and a 32+ character random session secret:
+
+```sh
+export GOGIF_PUBLIC_URL=https://YOUR_HOST
+export GOGIF_AUTH_MODE=oidc
+export GOGIF_SESSION_SECRET='replace-with-at-least-32-random-characters'
+export GOGIF_OIDC_ISSUER=https://YOUR_ISSUER
+export GOGIF_OIDC_CLIENT_ID=YOUR_CLIENT_ID
+export GOGIF_OIDC_CLIENT_SECRET=YOUR_CLIENT_SECRET
+export GOGIF_OIDC_REDIRECT_URL=https://YOUR_HOST/api/v1/auth/callback
+export GOGIF_MEMKV_ADDR=127.0.0.1:8081
+make run
+```
+
+OIDC startup fails closed without MemKV so accounts, identities, entitlements, library indexes, usage, and webhook idempotency do not silently disappear on restart. Run MemKV with AOF persistence and backups. The current repository/ledger implementation is for a single GoGIF API replica; use transactional database operations before horizontally scaling multiple writers.
+
+For a one-owner local install, `GOGIF_AUTH_MODE=local`, `GOGIF_LOCAL_OWNER_EMAIL`, and the same session-secret/public-URL settings enable the Library without an external identity provider. Local mode is intentionally unmetered and cannot enable Stripe billing.
+
+### Enable Stripe subscriptions
+
+Create recurring Creator and Pro Prices in Stripe, enable the [Stripe Customer Portal](https://docs.stripe.com/customer-management/integrate-customer-portal), and subscribe a webhook endpoint at `https://YOUR_HOST/api/v1/billing/webhook` to at least `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`. Then add:
+
+```sh
+export GOGIF_ENABLE_BILLING=true
+export STRIPE_SECRET_KEY=sk_live_or_test_...
+export STRIPE_WEBHOOK_SECRET=whsec_...
+export STRIPE_CREATOR_PRICE_ID=price_...
+export STRIPE_PRO_PRICE_ID=price_...
+export GOGIF_CREATOR_PRICE_CENTS=1500
+export GOGIF_PRO_PRICE_CENTS=3900
+```
+
+Checkout and subscription metadata carry the immutable GoGIF user/plan IDs; the webhook body is size-bounded, [signature-verified](https://docs.stripe.com/webhooks/signature), and idempotently recorded. `active`, `trialing`, and `past_due` currently retain paid access as a short billing grace policy; other states downgrade to Free. Price amounts are shown from GoGIF's server configuration, while Stripe remains the payment source of truth. Use [Stripe test mode and its webhook tooling](https://docs.stripe.com/webhooks) before live mode.
 
 ### Keys and accounts
 
@@ -161,6 +216,20 @@ The GIF bytes go to content-addressed blob storage; MemKV holds the searchable r
 | --- | --- | --- |
 | `GET` | `/api/health` | Readiness and engine status |
 | `GET` | `/api/v1/config` | Public client capabilities |
+| `GET` | `/api/v1/account` | Current principal, plan, credit balance, library usage, and public plan catalog |
+| `GET` | `/api/v1/auth/login` | Begin OIDC sign-in |
+| `GET` | `/api/v1/auth/callback` | Verify the OIDC flow and establish a signed session |
+| `POST` | `/api/v1/auth/logout` | Clear the signed session |
+| `GET` | `/api/v1/library` | List the signed-in user's private creations with cursor pagination |
+| `PATCH` / `DELETE` | `/api/v1/library/{id}` | Favorite/rename or soft-delete an owned creation |
+| `POST` / `DELETE` | `/api/v1/library/{id}/share` | Create/revoke an expiring public share link |
+| `GET` / `POST` | `/api/v1/collections` | List/create private collections |
+| `PATCH` / `DELETE` | `/api/v1/collections/{id}` | Rename/delete a private collection |
+| `PUT` / `DELETE` | `/api/v1/collections/{id}/assets/{asset}` | Add/remove an owned creation |
+| `POST` | `/api/v1/billing/checkout` | Create a Stripe-hosted subscription Checkout session |
+| `POST` | `/api/v1/billing/portal` | Create a Stripe-hosted Customer Portal session |
+| `POST` | `/api/v1/billing/webhook` | Verify and apply Stripe subscription events |
+| `GET` | `/s/{token}` | Serve an unexpired shared creation without exposing its blob key |
 | `GET` | `/api/v1/providers/wikimedia/search?q=...` | Search Wikimedia Commons with normalized rights metadata |
 | `GET` | `/api/v1/providers/gifcities/search?q=...` | Search GifCities and return source-linked archived GIFs |
 | `GET` | `/api/v1/providers/prelinger/search?q=...` | Search Prelinger archival films without downloading video |
@@ -225,4 +294,4 @@ No service can truthfully or lawfully search “every GIF on the internet.” Go
 
 ## Project status
 
-Early MVP. The repository intentionally has no software license yet; choose the commercial/open-source licensing strategy before making it public.
+Private beta foundation. Creation, federated search, account ownership, libraries, quotas, plan gates, and Stripe plumbing are implemented. The current Tailscale deployment remains appropriate for owner/device testing; do not call it a public production launch until OIDC/Stripe test-mode validation, durable blob hosting or a persistent single host, abuse/rate controls, content moderation, privacy/terms/refund policies, observability, backups, async cloud job recovery, and measured unit economics are in place. The repository intentionally has no software license yet; choose the commercial/open-source licensing strategy before making it public.

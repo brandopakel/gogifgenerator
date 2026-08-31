@@ -52,6 +52,56 @@ func TestRepositoryRejectsInvalidAndMissingAssets(t *testing.T) {
 	}
 }
 
+func TestRepositoryOwnerLibraryCollectionsAndShares(t *testing.T) {
+	ctx := context.Background()
+	repository := NewRepository(store.NewMemoryKV())
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	repository.now = func() time.Time { return now }
+	asset := validAsset(now)
+	asset.OwnerID = "usr_123"
+	if err := repository.Put(ctx, asset); err != nil {
+		t.Fatal(err)
+	}
+	page, err := repository.ListOwner(ctx, asset.OwnerID, "gif", "", 24)
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != asset.ID {
+		t.Fatalf("ListOwner() = %#v, %v", page, err)
+	}
+	favorite := true
+	updated, err := repository.UpdateOwnerAsset(ctx, asset.OwnerID, asset.ID, AssetPatch{Favorite: &favorite})
+	if err != nil || !updated.Favorite {
+		t.Fatalf("UpdateOwnerAsset() = %#v, %v", updated, err)
+	}
+	collection, err := repository.CreateCollection(ctx, asset.OwnerID, "Favorites")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection, err = repository.UpdateCollection(ctx, asset.OwnerID, collection.ID, "", &asset.ID, true)
+	if err != nil || len(collection.AssetIDs) != 1 {
+		t.Fatalf("UpdateCollection() = %#v, %v", collection, err)
+	}
+	grant, err := repository.CreateShare(ctx, asset.OwnerID, asset.ID, time.Hour)
+	if err != nil || grant.Token == "" {
+		t.Fatalf("CreateShare() = %#v, %v", grant, err)
+	}
+	_, shared, err := repository.ResolveShare(ctx, grant.Token)
+	if err != nil || shared.ID != asset.ID {
+		t.Fatalf("ResolveShare() = %#v, %v", shared, err)
+	}
+	replacement, err := repository.CreateShare(ctx, asset.OwnerID, asset.ID, 2*time.Hour)
+	if err != nil || replacement.Token == grant.Token {
+		t.Fatalf("replacement CreateShare() = %#v, %v", replacement, err)
+	}
+	if _, _, err := repository.ResolveShare(ctx, grant.Token); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("superseded ResolveShare error = %v", err)
+	}
+	if err := repository.RevokeShare(ctx, asset.OwnerID, asset.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := repository.ResolveShare(ctx, replacement.Token); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("revoked ResolveShare error = %v", err)
+	}
+}
+
 func validAsset(now time.Time) Asset {
 	return Asset{
 		ID:        "gif_123",

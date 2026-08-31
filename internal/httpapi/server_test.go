@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/gif"
@@ -17,6 +18,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/brandopakel/gogifgenerator/internal/account"
+	"github.com/brandopakel/gogifgenerator/internal/auth"
 	"github.com/brandopakel/gogifgenerator/internal/cinematic"
 	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
@@ -25,6 +28,7 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
 	"github.com/brandopakel/gogifgenerator/internal/reference"
+	"github.com/brandopakel/gogifgenerator/internal/store"
 	"github.com/brandopakel/gogifgenerator/internal/video"
 )
 
@@ -90,6 +94,118 @@ func TestGenerate(t *testing.T) {
 	}
 	if _, err := gif.DecodeAll(bytes.NewReader(response.Body.Bytes())); err != nil {
 		t.Fatalf("DecodeAll() error = %v", err)
+	}
+}
+
+func TestLocalAccountCreationIsOwnedListedAndShareable(t *testing.T) {
+	kv := store.NewMemoryKV()
+	mediaRepository := media.NewRepository(kv)
+	blobs, err := store.NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	library := media.NewLibrary(mediaRepository, blobs)
+	accounts := account.NewRepository(kv)
+	plans := account.NewCatalog(account.CatalogOptions{})
+	authManager, err := auth.New(auth.Options{
+		Mode: auth.ModeLocal, SessionSecret: strings.Repeat("s", 32), PublicURL: "http://example.com", LocalEmail: "owner@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(Options{
+		Planner: planner.Local{}, Auth: authManager, Accounts: accounts, Plans: plans, Usage: account.NewLedger(kv),
+		LibraryCatalog: mediaRepository, GeneratedSaver: library, GeneratedReader: library,
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/api/v1/gifs/generate", bytes.NewBufferString(`{
+      "prompt":"saved for later","width":128,"height":128,"frames":4,"generation_mode":"fast"
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("generate status = %d; body = %s", response.Code, response.Body.String())
+	}
+	assetID := response.Header().Get("X-GoGIF-Asset-ID")
+	if assetID == "" {
+		t.Fatal("generated response omitted asset ID")
+	}
+	asset, err := mediaRepository.Get(context.Background(), assetID)
+	if err != nil || asset.OwnerID != "usr_local" {
+		t.Fatalf("saved asset = %#v, %v", asset, err)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "http://example.com/api/v1/library", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	blobKey := ""
+	if len(asset.Renditions) > 0 {
+		blobKey = asset.Renditions[0].BlobKey
+	}
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), assetID) || (blobKey != "" && strings.Contains(response.Body.String(), blobKey)) {
+		t.Fatalf("library status = %d; body = %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "http://example.com/api/v1/library/"+assetID+"/share", bytes.NewBufferString(`{"hours":1}`))
+	request.Header.Set("Content-Type", "application/json")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("share status = %d; body = %s", response.Code, response.Body.String())
+	}
+	var share struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&share); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodGet, "http://example.com"+share.URL, nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/gif" {
+		t.Fatalf("shared asset status = %d; headers = %#v", response.Code, response.Header())
+	}
+}
+
+func TestGuestCannotSpendOnSemanticGeneration(t *testing.T) {
+	kv := store.NewMemoryKV()
+	authManager, err := auth.New(auth.Options{
+		Mode: auth.ModeOIDC, SessionSecret: strings.Repeat("s", 32), PublicURL: "https://example.com",
+		Repository: account.NewRepository(kv), Provider: inertIdentityProvider{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "https://example.com/api/v1/gifs/generate", bytes.NewBufferString(`{
+      "prompt":"expensive scene","width":320,"height":320,"frames":8,"generation_mode":"semantic"
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, Auth: authManager, Plans: account.NewCatalog(account.CatalogOptions{}), Usage: account.NewLedger(kv)}).ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), `"code":"sign_in_required"`) {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAuthenticatedGIFRequiresPrivateLibraryPersistence(t *testing.T) {
+	kv := store.NewMemoryKV()
+	authManager, err := auth.New(auth.Options{
+		Mode: auth.ModeOIDC, SessionSecret: strings.Repeat("s", 32), PublicURL: "https://example.com",
+		Repository: account.NewRepository(kv), Provider: inertIdentityProvider{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "https://example.com/api/v1/gifs/generate", nil)
+	request = request.WithContext(account.WithPrincipal(request.Context(), account.Principal{
+		ID: "usr_1", UserID: "usr_1", Email: "person@example.com", PlanID: account.PlanFree, Authenticated: true,
+	}))
+	response := httptest.NewRecorder()
+	app := server{options: Options{Auth: authManager, Plans: account.NewCatalog(account.CatalogOptions{})}}
+	saved := app.writeGenerated(response, request, planner.Request{Prompt: "private"}, planner.Result{}, []byte("GIF89a"), "test", nil)
+	if saved || response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "No credits were used") {
+		t.Fatalf("saved = %v; status = %d; body = %s", saved, response.Code, response.Body.String())
 	}
 }
 
@@ -645,6 +761,16 @@ func TestResolveProviderItemQuote(t *testing.T) {
 
 type recordingSaver struct {
 	generated media.GeneratedAsset
+}
+
+type inertIdentityProvider struct{}
+
+func (inertIdentityProvider) AuthorizationURL(state, nonce string) string {
+	return "https://identity.example/authorize?state=" + url.QueryEscape(state) + "&nonce=" + url.QueryEscape(nonce)
+}
+
+func (inertIdentityProvider) Exchange(context.Context, string, string) (account.Identity, error) {
+	return account.Identity{}, errors.New("not implemented")
 }
 
 type recordingGeneratedReader struct {

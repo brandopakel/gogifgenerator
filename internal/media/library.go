@@ -20,11 +20,12 @@ const (
 )
 
 type GeneratedAsset struct {
-	Prompt string
-	Engine string
-	Spec   gifdomain.Spec
-	Data   []byte
-	Source *GeneratedSource
+	OwnerID string
+	Prompt  string
+	Engine  string
+	Spec    gifdomain.Spec
+	Data    []byte
+	Source  *GeneratedSource
 }
 
 // GeneratedSource preserves the attribution and license obligations of a
@@ -51,9 +52,10 @@ type GeneratedReader interface {
 }
 
 type GeneratedModel struct {
-	Prompt string
-	Engine string
-	Data   []byte
+	OwnerID string
+	Prompt  string
+	Engine  string
+	Data    []byte
 }
 
 type ModelSaver interface {
@@ -100,7 +102,7 @@ func (l *Library) SaveModel(ctx context.Context, generated GeneratedModel) (Asse
 	}
 	now := l.now().UTC()
 	asset := Asset{
-		ID: id, Kind: KindModel, State: StateReady, Title: generated.Prompt, Prompt: generated.Prompt,
+		ID: id, OwnerID: generated.OwnerID, Kind: KindModel, State: StateReady, Title: generated.Prompt, Prompt: generated.Prompt,
 		CreatedAt: now, UpdatedAt: now,
 		Provenance:  Provenance{Provider: "gogif", ExternalID: id, Generator: generated.Engine, ImportedAt: &now, VerifiedAt: &now},
 		Rights:      Rights{Status: "generated-unreviewed", CommercialUse: PermissionUnknown, Derivatives: PermissionUnknown},
@@ -163,6 +165,7 @@ func (l *Library) SaveGenerated(ctx context.Context, generated GeneratedAsset) (
 	}
 	asset := Asset{
 		ID:         id,
+		OwnerID:    generated.OwnerID,
 		Kind:       KindGIF,
 		State:      StateReady,
 		Title:      spec.Caption,

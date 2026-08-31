@@ -144,7 +144,8 @@ func TestResultActionsFallBackToShareableGIFLink(t *testing.T) {
 	}
 	script := string(data)
 	for _, marker := range []string{
-		"response.headers.get('Location')", "function copyResultLink()", "navigator.clipboard.writeText(state.resultURL)",
+		"response.headers.get('Location')", "function copyResultLink()", "navigator.clipboard.writeText(shareURL || state.resultURL)",
+		"function currentResultShareURL()", "/share`,",
 		"so its link was copied", "function copyGIFStill()", "canvas.toBlob(resolve, 'image/png')",
 		"A still frame was copied. Use Share or Download to keep the animation.",
 	} {

@@ -22,7 +22,13 @@
         <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
         <span>GoGIF</span>
       </a>
-      <button id="install-button" class="quiet-button" type="button" hidden>Install</button>
+      <div class="account-actions">
+        <span id="credit-meter" class="credit-meter" hidden></span>
+        <button id="pricing-button" class="quiet-button" type="button" hidden>Plans</button>
+        <a id="sign-in-button" class="quiet-button" href="/api/v1/auth/login" hidden>Sign in</a>
+        <button id="account-button" class="quiet-button" type="button" hidden></button>
+        <button id="install-button" class="quiet-button" type="button" hidden>Install</button>
+      </div>
     </header>
 
     <main>
@@ -33,6 +39,7 @@
             <button id="edit-tab" class="mode" data-mode="edit" role="tab" aria-controls="create-panel" aria-selected="false" type="button">Edit</button>
             <button id="search-tab" class="mode" data-mode="search" role="tab" aria-controls="search-panel" aria-selected="false" type="button">Search</button>
             <button id="model-tab" class="mode" data-mode="model" role="tab" aria-controls="create-panel" aria-selected="false" type="button">3D</button>
+            <button id="library-tab" class="mode" data-mode="library" role="tab" aria-controls="library-panel" aria-selected="false" type="button" hidden>Library</button>
           </div>
 
           <form id="prompt-form" class="prompt-form">
@@ -205,12 +212,56 @@
         <div id="search-results" class="provider-results"></div>
         <div id="search-sentinel" class="search-sentinel" role="status" aria-live="polite" hidden></div>
       </section>
+
+      <section id="library-panel" class="workspace library-workspace" role="tabpanel" hidden aria-live="polite">
+        <div class="library-heading">
+          <div>
+            <p class="eyebrow">PRIVATE BY DEFAULT</p>
+            <h2>My Library</h2>
+            <p id="library-usage" class="library-usage"></p>
+          </div>
+          <div class="library-tools">
+            <select id="library-kind" aria-label="Filter library">
+              <option value="">Everything</option>
+              <option value="gif">GIFs &amp; stickers</option>
+              <option value="model">3D models</option>
+            </select>
+            <button id="new-collection-button" class="secondary-button" type="button">New collection</button>
+          </div>
+        </div>
+        <div id="collection-list" class="collection-list" aria-label="Collections"></div>
+        <div id="library-message" class="library-message"></div>
+        <div id="library-grid" class="library-grid"></div>
+        <button id="library-more" class="secondary-button library-more" type="button" hidden>Load more</button>
+      </section>
     </main>
 
     <footer>
       <a href="https://github.com/brandopakel/gogifgenerator" rel="noreferrer">Source</a>
     </footer>
     <div id="toast" class="toast" role="status" hidden></div>
+    <dialog id="pricing-dialog" class="pricing-dialog">
+      <form method="dialog" class="dialog-close-row"><button class="quiet-button" aria-label="Close plans">Close</button></form>
+      <div class="pricing-copy">
+        <p class="eyebrow">CREATE SUSTAINABLY</p>
+        <h2>Choose your GoGIF plan</h2>
+        <p>Generation credits pay for AI inference, rendering, storage, and bandwidth. They are GoGIF credits—not raw provider credits.</p>
+      </div>
+      <div id="pricing-grid" class="pricing-grid"></div>
+      <button id="manage-billing-button" class="secondary-button manage-billing" type="button" hidden>Manage billing</button>
+      <button id="logout-button" class="secondary-button manage-billing" type="button" hidden>Sign out</button>
+    </dialog>
+
+    <dialog id="collection-dialog" class="collection-dialog">
+      <form id="collection-form">
+        <label for="collection-name">Collection name</label>
+        <input id="collection-name" maxlength="80" required autocomplete="off">
+        <div class="dialog-actions">
+          <button class="secondary-button" value="cancel" formmethod="dialog" type="submit">Cancel</button>
+          <button class="primary-button" type="submit">Create</button>
+        </div>
+      </form>
+    </dialog>
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.3.1/model-viewer.min.js"></script>
     <script src="/app.js" defer></script>
   </body>

@@ -76,3 +76,15 @@ func TestQualityPipelineRequiresExplicitOptIn(t *testing.T) {
 		t.Fatalf("Load() = %#v", settings)
 	}
 }
+
+func TestAccountsAndBillingRequireExplicitConfiguration(t *testing.T) {
+	t.Setenv("GOGIF_AUTH_MODE", "oidc")
+	t.Setenv("GOGIF_PUBLIC_URL", "https://gogif.example")
+	t.Setenv("GOGIF_ENABLE_BILLING", "true")
+	t.Setenv("STRIPE_CREATOR_PRICE_ID", "price_creator")
+	t.Setenv("GOGIF_CREATOR_PRICE_CENTS", "1900")
+	settings := Load()
+	if settings.AuthMode != "oidc" || settings.PublicURL != "https://gogif.example" || !settings.BillingEnabled || settings.StripeCreatorPriceID != "price_creator" || settings.CreatorPriceCents != 1900 {
+		t.Fatalf("Load() = %#v", settings)
+	}
+}

@@ -53,6 +53,9 @@ type Asset struct {
 	Title       string       `json:"title,omitempty"`
 	Prompt      string       `json:"prompt,omitempty"`
 	Tags        []string     `json:"tags,omitempty"`
+	Favorite    bool         `json:"favorite,omitempty"`
+	Shared      bool         `json:"shared,omitempty"`
+	ShareExpiry *time.Time   `json:"share_expiry,omitempty"`
 	Renditions  []Rendition  `json:"renditions,omitempty"`
 	Provenance  Provenance   `json:"provenance"`
 	Rights      Rights       `json:"rights"`

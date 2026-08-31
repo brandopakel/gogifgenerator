@@ -4,6 +4,7 @@ const elements = {
   submit: document.querySelector('#submit-button'),
   submitLabel: document.querySelector('#submit-label'),
   modes: [...document.querySelectorAll('.mode')],
+  modelTab: document.querySelector('#model-tab'),
   createPanel: document.querySelector('#create-panel'),
   searchPanel: document.querySelector('#search-panel'),
   previewShell: document.querySelector('#preview-shell'),
@@ -38,6 +39,26 @@ const elements = {
 	modelOptions: document.querySelector('#model-options'),
 	modelRecipe: document.querySelector('#model-recipe'),
   install: document.querySelector('#install-button'),
+  pricing: document.querySelector('#pricing-button'),
+  signIn: document.querySelector('#sign-in-button'),
+  account: document.querySelector('#account-button'),
+  creditMeter: document.querySelector('#credit-meter'),
+  libraryTab: document.querySelector('#library-tab'),
+  libraryPanel: document.querySelector('#library-panel'),
+  libraryGrid: document.querySelector('#library-grid'),
+  libraryMessage: document.querySelector('#library-message'),
+  libraryUsage: document.querySelector('#library-usage'),
+  libraryKind: document.querySelector('#library-kind'),
+  libraryMore: document.querySelector('#library-more'),
+  collectionList: document.querySelector('#collection-list'),
+  newCollection: document.querySelector('#new-collection-button'),
+  collectionDialog: document.querySelector('#collection-dialog'),
+  collectionForm: document.querySelector('#collection-form'),
+  collectionName: document.querySelector('#collection-name'),
+  pricingDialog: document.querySelector('#pricing-dialog'),
+  pricingGrid: document.querySelector('#pricing-grid'),
+  manageBilling: document.querySelector('#manage-billing-button'),
+  logout: document.querySelector('#logout-button'),
   referenceChip: document.querySelector('#reference-chip'),
   referenceLabel: document.querySelector('#reference-label'),
   referenceClear: document.querySelector('#reference-clear'),
@@ -72,6 +93,7 @@ const state = {
   uploadFile: null, seed: 0, installPrompt: null, reference: null, uploadIsVideo: false,
   history: [], historyIndex: -1, applyingHistory: false, currentDraftID: '', drag: null,
   searchRequestID: 0, searchSession: null,
+  account: null, plans: [], usage: null, libraryItems: [], libraryCursor: '', collections: [], selectedCollection: '',
 };
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -114,6 +136,404 @@ async function loadConfig() {
   }
 }
 
+async function loadAccount() {
+  try {
+    const response = await fetch('/api/v1/account', { credentials: 'same-origin' });
+    if (!response.ok) throw new Error('Account status failed');
+    const data = await response.json();
+    state.account = data;
+    state.plans = data.plans || [];
+    state.usage = data.usage || null;
+    renderAccount();
+    renderPricing();
+    applyPlanControls();
+    if (data.enabled && data.authenticated) {
+      await Promise.all([loadLibrary(true), loadCollections()]);
+    }
+  } catch {
+    // Creation and search remain available when the optional account service is offline.
+  }
+}
+
+function renderAccount() {
+  const data = state.account;
+  const enabled = Boolean(data?.enabled);
+  elements.pricing.hidden = !enabled;
+  elements.libraryTab.hidden = !enabled;
+  elements.signIn.hidden = !enabled || data.authenticated || data.auth_mode !== 'oidc';
+  elements.account.hidden = !enabled || !data.authenticated;
+  elements.logout.hidden = !enabled || !data.authenticated || data.auth_mode !== 'oidc';
+  elements.manageBilling.hidden = !enabled || !data.authenticated || !data.billing_enabled || !data.subscription?.has_customer;
+  if (data?.authenticated) {
+    const label = data.account?.name || data.account?.email || 'Account';
+    elements.account.textContent = label.length > 18 ? `${label.slice(0, 17)}…` : label;
+  }
+  if (enabled && state.usage) {
+    elements.creditMeter.textContent = `${state.usage.remaining} credits`;
+    elements.creditMeter.hidden = false;
+  } else {
+    elements.creditMeter.hidden = true;
+  }
+  if (enabled && !data.authenticated && state.mode === 'library') renderLibrarySignIn();
+}
+
+function applyPlanControls() {
+  const data = state.account;
+  if (!data?.enabled || !data.plan) return;
+  const plan = data.plan;
+  for (const option of elements.size.options) option.disabled = Number(option.value) > plan.max_dimension;
+  for (const option of elements.quality.options) option.disabled = Number(option.value) > plan.max_frames;
+  if (elements.size.selectedOptions[0]?.disabled) {
+    elements.size.value = [...elements.size.options].filter((option) => !option.disabled).at(-1)?.value || elements.size.value;
+  }
+  if (elements.quality.selectedOptions[0]?.disabled) {
+    elements.quality.value = [...elements.quality.options].filter((option) => !option.disabled).at(-1)?.value || elements.quality.value;
+  }
+  const semantic = elements.generationMode.querySelector('option[value="semantic"]');
+  const studio = elements.generationMode.querySelector('option[value="studio"]');
+  semantic.disabled = !plan.semantic || !state.config?.image_generator?.semantic;
+  studio.disabled = !plan.studio || !state.config?.quality_pipeline?.enabled;
+  if (elements.generationMode.selectedOptions[0]?.disabled) elements.generationMode.value = 'fast';
+  elements.modelTab?.classList.toggle('locked', !plan.models_3d);
+}
+
+function renderPricing() {
+  elements.pricingGrid.replaceChildren();
+  for (const plan of state.plans) {
+    const card = document.createElement('article');
+    card.className = 'plan-card';
+    if (state.account?.plan?.id === plan.id) card.classList.add('current');
+    const eyebrow = document.createElement('p');
+    eyebrow.className = 'eyebrow';
+    eyebrow.textContent = state.account?.plan?.id === plan.id ? 'CURRENT PLAN' : plan.paid ? 'MONTHLY' : 'START HERE';
+    const title = document.createElement('h3');
+    title.textContent = plan.name;
+    const price = document.createElement('p');
+    price.className = 'plan-price';
+    price.textContent = plan.monthly_price_cents ? `$${(plan.monthly_price_cents / 100).toFixed(0)}` : '$0';
+    const period = document.createElement('span');
+    period.textContent = plan.monthly_price_cents ? ' / month' : ' forever';
+    price.append(period);
+    const features = document.createElement('ul');
+    const featureValues = [
+      `${plan.credits} generation credits / ${plan.credit_period}`,
+      `Up to ${plan.max_dimension}px and ${plan.max_frames} frames`,
+      `${plan.library_assets.toLocaleString()} private library items`,
+      plan.models_3d ? '3D model creation included' : 'GIF creation',
+      plan.studio ? 'Studio Local access where available' : 'Private-by-default creations',
+    ];
+    for (const value of featureValues) {
+      const item = document.createElement('li');
+      item.textContent = value;
+      features.append(item);
+    }
+    const button = document.createElement('button');
+    button.className = plan.paid ? 'primary-button' : 'secondary-button';
+    const current = state.account?.plan?.id === plan.id;
+    button.textContent = current ? 'Current plan' : plan.paid && !plan.purchase_enabled ? 'Coming soon' : !state.account?.authenticated ? 'Sign in to choose' : plan.paid ? `Choose ${plan.name}` : 'Free';
+    button.disabled = current || (!plan.paid && state.account?.authenticated) || (plan.paid && !plan.purchase_enabled);
+    button.addEventListener('click', () => {
+      if (!state.account?.authenticated) window.location.href = '/api/v1/auth/login';
+      else if (plan.paid) startCheckout(plan.id);
+    });
+    card.append(eyebrow, title, price, features, button);
+    elements.pricingGrid.append(card);
+  }
+}
+
+async function startCheckout(planID) {
+  if (!state.account?.billing_enabled) {
+    showToast('Payments are not connected yet. The plan structure is ready for Stripe price IDs.');
+    return;
+  }
+  try {
+    const response = await fetch('/api/v1/billing/checkout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan_id: planID }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error?.message || 'Checkout could not be started.');
+    window.location.href = data.url;
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function openBillingPortal() {
+  try {
+    const response = await fetch('/api/v1/billing/portal', { method: 'POST' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error?.message || 'Billing management could not be opened.');
+    window.location.href = data.url;
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function showPricing() {
+  if (typeof elements.pricingDialog.showModal === 'function') elements.pricingDialog.showModal();
+}
+
+async function loadLibrary(reset = false) {
+  if (!state.account?.authenticated) {
+    renderLibrarySignIn();
+    return;
+  }
+  if (reset) {
+    state.libraryItems = [];
+    state.libraryCursor = '';
+  }
+  const query = new URLSearchParams({ limit: '24' });
+  if (elements.libraryKind.value) query.set('kind', elements.libraryKind.value);
+  if (!reset && state.libraryCursor) query.set('cursor', state.libraryCursor);
+  elements.libraryMessage.textContent = state.libraryItems.length ? '' : 'Loading your creations…';
+  try {
+    const response = await fetch(`/api/v1/library?${query}`);
+    if (!response.ok) throw new Error('Your library could not be loaded.');
+    const page = await response.json();
+    state.libraryItems.push(...(page.items || []));
+    state.libraryCursor = page.next_cursor || '';
+    renderLibrary();
+  } catch (error) {
+    elements.libraryMessage.textContent = error.message;
+  }
+}
+
+function renderLibrarySignIn() {
+  elements.libraryGrid.replaceChildren();
+  elements.libraryMessage.replaceChildren();
+  const message = document.createElement('p');
+  message.textContent = 'Sign in to automatically save creations and sync them across devices.';
+  const link = document.createElement('a');
+  link.className = 'primary-button';
+  link.href = '/api/v1/auth/login';
+  link.textContent = 'Create a free account';
+  elements.libraryMessage.append(message, link);
+  elements.libraryMore.hidden = true;
+}
+
+function renderLibrary() {
+  elements.libraryGrid.replaceChildren();
+  const selected = state.collections.find((collection) => collection.id === state.selectedCollection);
+  const items = selected ? state.libraryItems.filter((item) => selected.asset_ids.includes(item.id)) : state.libraryItems;
+  elements.libraryMessage.textContent = items.length ? '' : 'Your library is ready for its first creation.';
+  elements.libraryMore.hidden = !state.libraryCursor;
+  const plan = state.account?.plan;
+  const usage = state.account?.library_usage;
+  elements.libraryUsage.textContent = plan && usage
+    ? `${usage.items.toLocaleString()} of ${plan.library_assets.toLocaleString()} items · ${formatBytes(usage.bytes)} of ${formatBytes(plan.library_bytes)}`
+    : plan ? `${state.libraryItems.length.toLocaleString()} loaded · ${plan.library_assets.toLocaleString()} item plan limit` : '';
+  for (const item of items) elements.libraryGrid.append(libraryCard(item));
+}
+
+function libraryCard(item) {
+  const card = document.createElement('article');
+  card.className = 'library-card';
+  const mediaButton = document.createElement('button');
+  mediaButton.className = 'library-card-media';
+  mediaButton.type = 'button';
+  mediaButton.addEventListener('click', () => openLibraryItem(item));
+  if (item.kind === 'model') {
+    const mark = document.createElement('span');
+    mark.className = 'library-model-mark';
+    mark.textContent = '3D';
+    mediaButton.append(mark);
+  } else {
+    const image = document.createElement('img');
+    image.src = item.url;
+    image.alt = item.title || item.prompt || 'Saved GIF';
+    image.loading = 'lazy';
+    mediaButton.append(image);
+  }
+  const body = document.createElement('div');
+  body.className = 'library-card-body';
+  const title = document.createElement('strong');
+  title.textContent = item.title || item.prompt || 'Untitled creation';
+  const details = document.createElement('small');
+  details.textContent = `${item.kind === 'model' ? '3D model' : `${item.width || ''}px GIF`} · ${formatBytes(item.size_bytes || 0)}`;
+  const actions = document.createElement('div');
+  actions.className = 'library-card-actions';
+  const favorite = libraryAction(item.favorite ? '★ Saved' : '☆ Favorite', () => updateLibraryItem(item.id, { favorite: !item.favorite }));
+  favorite.classList.toggle('favorite-active', item.favorite);
+  const share = libraryAction('Share', () => shareLibraryItem(item));
+  const remove = libraryAction('Delete', () => deleteLibraryItem(item));
+  remove.classList.add('danger-button');
+  actions.append(favorite, share);
+  if (state.collections.length) {
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', 'Add to collection');
+    select.append(new Option('Collect…', ''));
+    for (const collection of state.collections) select.append(new Option(collection.name, collection.id));
+    select.addEventListener('change', async () => {
+      if (select.value) await addToCollection(select.value, item.id);
+      select.value = '';
+    });
+    actions.append(select);
+  }
+  actions.append(remove);
+  body.append(title, details, actions);
+  card.append(mediaButton, body);
+  return card;
+}
+
+function libraryAction(label, action) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = label;
+  button.addEventListener('click', action);
+  return button;
+}
+
+async function openLibraryItem(item) {
+  try {
+    const response = await fetch(item.url);
+    if (!response.ok) throw new Error('This creation could not be opened.');
+    const blob = await response.blob();
+    if (item.kind === 'model') {
+      setMode('model');
+      presentModelResult(blob, item.url);
+    } else {
+      setMode('create');
+      presentResult(blob, item.url);
+    }
+    elements.resultTitle.textContent = item.title || item.prompt || 'Saved creation';
+    scrollToElement(elements.createPanel);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function updateLibraryItem(id, patch) {
+  try {
+    const response = await fetch(`/api/v1/library/${encodeURIComponent(id)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+    });
+    const updated = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(updated.error?.message || 'The creation could not be updated.');
+    state.libraryItems = state.libraryItems.map((item) => item.id === id ? updated : item);
+    renderLibrary();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function deleteLibraryItem(item) {
+  if (!window.confirm(`Move “${item.title || item.prompt || 'this creation'}” to trash?`)) return;
+  try {
+    const response = await fetch(`/api/v1/library/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('The creation could not be deleted.');
+    state.libraryItems = state.libraryItems.filter((candidate) => candidate.id !== item.id);
+    renderLibrary();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function shareLibraryItem(item) {
+  try {
+    const response = await fetch(`/api/v1/library/${encodeURIComponent(item.id)}/share`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hours: 168 }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error?.message || 'The share link could not be created.');
+    const shareURL = new URL(data.url, window.location.origin).href;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: item.title || 'GoGIF creation', url: shareURL });
+        return;
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+      }
+    }
+    await navigator.clipboard.writeText(shareURL);
+    showToast('A private seven-day share link was copied.');
+    await loadLibrary(true);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function loadCollections() {
+  if (!state.account?.authenticated) return;
+  try {
+    const response = await fetch('/api/v1/collections');
+    if (!response.ok) throw new Error('Collections could not be loaded.');
+    const data = await response.json();
+    state.collections = data.items || [];
+    renderCollections();
+    if (state.libraryItems.length) renderLibrary();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function renderCollections() {
+  elements.collectionList.replaceChildren();
+  const all = libraryAction('All creations', () => { state.selectedCollection = ''; renderCollections(); renderLibrary(); });
+  all.className = 'collection-chip';
+  if (!state.selectedCollection) all.classList.add('favorite-active');
+  elements.collectionList.append(all);
+  for (const collection of state.collections) {
+    const chip = libraryAction(`${collection.name} · ${collection.asset_ids.length}`, () => {
+      state.selectedCollection = collection.id;
+      renderCollections();
+      renderLibrary();
+    });
+    chip.className = 'collection-chip';
+    if (state.selectedCollection === collection.id) chip.classList.add('favorite-active');
+    elements.collectionList.append(chip);
+  }
+}
+
+async function createCollection(name) {
+  try {
+    const response = await fetch('/api/v1/collections', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+    });
+    const collection = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(collection.error?.message || 'The collection could not be created.');
+    state.collections.push(collection);
+    renderCollections();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function addToCollection(collectionID, assetID) {
+  try {
+    const response = await fetch(`/api/v1/collections/${encodeURIComponent(collectionID)}/assets/${encodeURIComponent(assetID)}`, { method: 'PUT' });
+    const collection = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(collection.error?.message || 'The creation could not be collected.');
+    state.collections = state.collections.map((candidate) => candidate.id === collection.id ? collection : candidate);
+    renderCollections();
+    showToast('Added to collection.');
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  return `${(bytes / (1024 ** index)).toFixed(index ? 1 : 0)} ${units[index]}`;
+}
+
+async function responseProblem(response, fallback) {
+  const problem = await response.json().catch(() => ({}));
+  const error = new Error(problem.error?.message || fallback);
+  error.code = problem.error?.code || '';
+  if (['upgrade_required', 'credits_exhausted', 'quality_limit', 'library_limit'].includes(error.code)) showPricing();
+  if (error.code === 'sign_in_required' && state.account?.auth_mode === 'oidc') {
+    showToast('Sign in to use cloud generation and save the result.');
+  }
+  return error;
+}
+
+async function refreshOwnedState() {
+  if (!state.account?.enabled) return;
+  await loadAccount();
+}
+
 function setMode(mode) {
 	const changingMediaType = (mode === 'model') !== (state.mode === 'model');
   state.mode = mode;
@@ -126,14 +546,17 @@ function setMode(mode) {
   const searching = mode === 'search';
   const editing = mode === 'edit';
 	const modeling = mode === 'model';
-  elements.createPanel.hidden = searching;
+  const library = mode === 'library';
+  elements.createPanel.hidden = searching || library;
   elements.searchPanel.hidden = !searching;
+  elements.libraryPanel.hidden = !library;
+  elements.form.hidden = library;
   elements.searchOptions.hidden = !searching;
 	elements.modelOptions.hidden = !modeling;
   elements.uploadEditor.hidden = !editing;
   elements.editControls.hidden = !editing;
 	elements.referenceChip.hidden = editing || modeling || !state.reference;
-  elements.prompt.required = !editing;
+	elements.prompt.required = !editing && !library;
 	elements.submitLabel.textContent = editing ? 'Export GIF' : searching ? 'Find it' : modeling ? 'Build 3D' : 'Make it';
 	elements.submit.setAttribute('aria-label', editing ? 'Export edited GIF' : searching ? 'Search GIFs' : modeling ? 'Create 3D model' : 'Create GIF');
 	elements.prompt.placeholder = editing ? 'Add a caption (optional)…' : searching ? 'Search GIFs or clips…' : modeling ? 'Describe a 3D model…' : 'Describe a GIF…';
@@ -157,7 +580,10 @@ function setMode(mode) {
 	  elements.previewEmpty.hidden = true;
 	}
   if (editing && state.history.length === 0) recordEditorState();
-  if (searching) queueSearch();
+  if (library) {
+    if (state.account?.authenticated) loadLibrary(true);
+    else renderLibrarySignIn();
+  } else if (searching) queueSearch();
   else {
     clearTimeout(searchTimer);
     state.searchRequestID += 1;
@@ -191,16 +617,14 @@ async function generateModel(prompt, reroll = false) {
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ prompt, recipe: elements.modelRecipe.value, seed: state.seed }),
 	  });
-	  if (!response.ok) {
-		const problem = await response.json().catch(() => ({}));
-		throw new Error(problem.error?.message || `3D generation failed (${response.status})`);
-	  }
+	  if (!response.ok) throw await responseProblem(response, `3D generation failed (${response.status})`);
 	  const resultURL = response.headers.get('Location');
 	  const blob = await response.blob();
 	  presentModelResult(blob, resultURL);
 	  elements.resultTitle.textContent = prompt.length > 48 ? `${prompt.slice(0, 48)}…` : prompt;
 	  elements.reroll.disabled = false;
 	  scrollToElement(elements.createPanel);
+	  await refreshOwnedState();
 	} catch (error) {
 	  showToast(error.message);
 	} finally {
@@ -240,16 +664,14 @@ async function generate(prompt, reroll = false) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!response.ok) {
-      const problem = await response.json().catch(() => ({}));
-      throw new Error(problem.error?.message || `Generation failed (${response.status})`);
-    }
+    if (!response.ok) throw await responseProblem(response, `Generation failed (${response.status})`);
     const resultURL = response.headers.get('Location');
     const blob = await response.blob();
     presentResult(blob, resultURL);
     elements.resultTitle.textContent = prompt.length > 48 ? `${prompt.slice(0, 48)}…` : prompt;
     elements.reroll.disabled = false;
     scrollToElement(elements.createPanel);
+    await refreshOwnedState();
   } catch (error) {
     showToast(error.message);
   } finally {
@@ -340,16 +762,14 @@ async function exportUpload(caption) {
     body.append('trim_end_ms', String(Math.round(trimEnd * 1000)));
     body.append('max_bytes', elements.targetSize.value);
     const response = await fetch('/api/v1/gifs/generate-from-upload', { method: 'POST', body });
-    if (!response.ok) {
-      const problem = await response.json().catch(() => ({}));
-      throw new Error(problem.error?.message || `Upload export failed (${response.status})`);
-    }
+    if (!response.ok) throw await responseProblem(response, `Upload export failed (${response.status})`);
     const resultURL = response.headers.get('Location');
     const blob = await response.blob();
     presentResult(blob, resultURL);
     elements.resultTitle.textContent = caption || state.uploadFile.name;
     elements.reroll.disabled = false;
     scrollToElement(elements.createPanel);
+    await refreshOwnedState();
   } catch (error) {
     showToast(error.message);
   } finally {
@@ -514,11 +934,26 @@ async function copyGIFStill() {
 async function copyResultLink() {
   if (!state.resultURL || !navigator.clipboard?.writeText) return false;
   try {
-    await navigator.clipboard.writeText(state.resultURL);
+    const shareURL = await currentResultShareURL();
+    await navigator.clipboard.writeText(shareURL || state.resultURL);
     return true;
   } catch {
     return false;
   }
+}
+
+async function currentResultShareURL() {
+  if (!state.account?.authenticated || !state.resultURL) return '';
+  const result = new URL(state.resultURL, window.location.origin);
+  if (result.origin !== window.location.origin) return '';
+  const match = result.pathname.match(/^\/api\/v1\/(?:gifs|models)\/([^/]+)$/);
+  if (!match) return '';
+  const response = await fetch(`/api/v1/library/${encodeURIComponent(match[1])}/share`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hours: 168 }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error?.message || 'A share link could not be created.');
+  return new URL(data.url, window.location.origin).href;
 }
 
 const exportPresets = {
@@ -1271,8 +1706,45 @@ function showToast(message) {
   toastTimer = setTimeout(() => { elements.toast.hidden = true; }, 3500);
 }
 
-for (const mode of elements.modes) mode.addEventListener('click', () => setMode(mode.dataset.mode));
+for (const mode of elements.modes) mode.addEventListener('click', () => {
+  if (mode.dataset.mode === 'model' && state.account?.enabled && !state.account?.plan?.models_3d) {
+    showPricing();
+    return;
+  }
+  setMode(mode.dataset.mode);
+});
 elements.form.addEventListener('submit', submitPrompt);
+elements.pricing.addEventListener('click', showPricing);
+elements.account.addEventListener('click', showPricing);
+elements.manageBilling.addEventListener('click', openBillingPortal);
+elements.logout.addEventListener('click', async () => {
+  try {
+    const response = await fetch('/api/v1/auth/logout', { method: 'POST' });
+    if (!response.ok) throw new Error('Sign out failed.');
+    window.location.href = '/';
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+elements.libraryKind.addEventListener('change', () => loadLibrary(true));
+elements.libraryMore.addEventListener('click', () => loadLibrary(false));
+elements.newCollection.addEventListener('click', () => {
+  if (!state.account?.authenticated) {
+    if (state.account?.auth_mode === 'oidc') window.location.href = '/api/v1/auth/login';
+    return;
+  }
+  elements.collectionName.value = '';
+  if (typeof elements.collectionDialog.showModal === 'function') elements.collectionDialog.showModal();
+  elements.collectionName.focus();
+});
+elements.collectionForm.addEventListener('submit', async (event) => {
+  if (event.submitter?.value === 'cancel') return;
+  event.preventDefault();
+  const name = elements.collectionName.value.trim();
+  if (!name) return;
+  await createCollection(name);
+  elements.collectionDialog.close();
+});
 elements.searchScope.addEventListener('change', () => {
   updateSearchScope();
   queueSearch();
@@ -1354,6 +1826,14 @@ const searchObserver = new IntersectionObserver((entries) => {
 }, { rootMargin: '700px 0px' });
 searchObserver.observe(elements.searchSentinel);
 window.addEventListener('scroll', () => scheduleSearchContinuation(), { passive: true });
-loadConfig();
+const billingState = new URLSearchParams(window.location.search).get('billing');
+if (billingState === 'success') {
+  history.replaceState(null, '', window.location.pathname);
+  showToast('Plan selected. Your account will update as soon as Stripe confirms it.');
+} else if (billingState === 'canceled' || billingState === 'cancelled') {
+  history.replaceState(null, '', window.location.pathname);
+  showToast('Checkout cancelled. Nothing was charged.');
+}
+loadConfig().then(loadAccount);
 refreshDrafts();
 updateEditorVisuals();

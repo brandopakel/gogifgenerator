@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -37,6 +38,21 @@ type Config struct {
 	UnrealExecutable       string
 	UnrealProject          string
 	UnrealScript           string
+	PublicURL              string
+	AuthMode               string
+	SessionSecret          string
+	LocalOwnerEmail        string
+	OIDCIssuer             string
+	OIDCClientID           string
+	OIDCClientSecret       string
+	OIDCRedirectURL        string
+	BillingEnabled         bool
+	StripeSecretKey        string
+	StripeWebhookSecret    string
+	StripeCreatorPriceID   string
+	StripeProPriceID       string
+	CreatorPriceCents      int
+	ProPriceCents          int
 }
 
 func Load() Config {
@@ -73,6 +89,21 @@ func Load() Config {
 		UnrealExecutable:       envOr("GOGIF_UNREAL_EXECUTABLE", "UnrealEditor-Cmd"),
 		UnrealProject:          os.Getenv("GOGIF_UNREAL_PROJECT"),
 		UnrealScript:           os.Getenv("GOGIF_UNREAL_SCRIPT"),
+		PublicURL:              envOr("GOGIF_PUBLIC_URL", "http://localhost:8080"),
+		AuthMode:               strings.ToLower(strings.TrimSpace(envOr("GOGIF_AUTH_MODE", "disabled"))),
+		SessionSecret:          os.Getenv("GOGIF_SESSION_SECRET"),
+		LocalOwnerEmail:        os.Getenv("GOGIF_LOCAL_OWNER_EMAIL"),
+		OIDCIssuer:             os.Getenv("GOGIF_OIDC_ISSUER"),
+		OIDCClientID:           os.Getenv("GOGIF_OIDC_CLIENT_ID"),
+		OIDCClientSecret:       os.Getenv("GOGIF_OIDC_CLIENT_SECRET"),
+		OIDCRedirectURL:        os.Getenv("GOGIF_OIDC_REDIRECT_URL"),
+		BillingEnabled:         envBool("GOGIF_ENABLE_BILLING"),
+		StripeSecretKey:        os.Getenv("STRIPE_SECRET_KEY"),
+		StripeWebhookSecret:    os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		StripeCreatorPriceID:   os.Getenv("STRIPE_CREATOR_PRICE_ID"),
+		StripeProPriceID:       os.Getenv("STRIPE_PRO_PRICE_ID"),
+		CreatorPriceCents:      envInt("GOGIF_CREATOR_PRICE_CENTS", 1500),
+		ProPriceCents:          envInt("GOGIF_PRO_PRICE_CENTS", 3900),
 	}
 }
 
@@ -90,4 +121,12 @@ func envOr(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envInt(name string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }

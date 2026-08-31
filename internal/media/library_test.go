@@ -26,15 +26,16 @@ func TestLibrarySavesGeneratedBytesAndCatalogRecord(t *testing.T) {
 	spec := gifdomain.Defaults()
 
 	asset, err := library.SaveGenerated(ctx, GeneratedAsset{
-		Prompt: "we shipped it",
-		Engine: "local",
-		Spec:   spec,
-		Data:   []byte("GIF89a-test"),
+		OwnerID: "usr_123",
+		Prompt:  "we shipped it",
+		Engine:  "local",
+		Spec:    spec,
+		Data:    []byte("GIF89a-test"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if asset.ID != "gif_generated" || asset.Fingerprint == nil || asset.Fingerprint.SHA256 == "" {
+	if asset.ID != "gif_generated" || asset.OwnerID != "usr_123" || asset.Fingerprint == nil || asset.Fingerprint.SHA256 == "" {
 		t.Fatalf("SaveGenerated() = %#v", asset)
 	}
 	stored, err := repository.Get(ctx, asset.ID)

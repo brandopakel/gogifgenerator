@@ -10,6 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/brandopakel/gogifgenerator/internal/account"
+	"github.com/brandopakel/gogifgenerator/internal/auth"
+	"github.com/brandopakel/gogifgenerator/internal/billing"
 	"github.com/brandopakel/gogifgenerator/internal/cinematic"
 	filmblender "github.com/brandopakel/gogifgenerator/internal/cinematic/blender"
 	filmffmpeg "github.com/brandopakel/gogifgenerator/internal/cinematic/ffmpeg"
@@ -40,6 +43,10 @@ import (
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	settings := config.Load()
+	if settings.AuthMode == auth.ModeOIDC && settings.MemKVAddress == "" {
+		logger.Error("configure accounts", "error", "GOGIF_MEMKV_ADDR is required for durable multi-user accounts")
+		os.Exit(1)
+	}
 	localPlanner := planner.Local{}
 	var animationPlanner planner.Planner = localPlanner
 	paidAIEnabled := settings.PaidAIEnabled && settings.OpenAIAPIKey != ""
@@ -81,11 +88,54 @@ func main() {
 		logger.Error("configure blob storage", "error", err)
 		os.Exit(1)
 	}
-	library := media.NewLibrary(media.NewRepository(catalog), blobs)
+	mediaRepository := media.NewRepository(catalog)
+	library := media.NewLibrary(mediaRepository, blobs)
 	var generatedSaver media.GeneratedSaver = library
 	var generatedReader media.GeneratedReader = library
 	var modelSaver media.ModelSaver = library
 	var modelReader media.ModelReader = library
+	plans := account.NewCatalog(account.CatalogOptions{
+		CreatorPriceID: settings.StripeCreatorPriceID, ProPriceID: settings.StripeProPriceID,
+		CreatorCents: settings.CreatorPriceCents, ProCents: settings.ProPriceCents,
+	})
+	accounts := account.NewRepository(catalog)
+	usage := account.NewLedger(catalog)
+	var identityProvider auth.Provider
+	if settings.AuthMode == auth.ModeOIDC {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		provider, providerErr := auth.NewOIDCProvider(ctx, auth.OIDCOptions{
+			Issuer: settings.OIDCIssuer, ClientID: settings.OIDCClientID, ClientSecret: settings.OIDCClientSecret, RedirectURL: settings.OIDCRedirectURL,
+		})
+		cancel()
+		if providerErr != nil {
+			logger.Error("configure OIDC", "error", providerErr)
+			os.Exit(1)
+		}
+		identityProvider = provider
+	}
+	authManager, err := auth.New(auth.Options{
+		Mode: settings.AuthMode, SessionSecret: settings.SessionSecret, PublicURL: settings.PublicURL,
+		Repository: accounts, Provider: identityProvider, LocalEmail: settings.LocalOwnerEmail,
+	})
+	if err != nil {
+		logger.Error("configure accounts", "error", err)
+		os.Exit(1)
+	}
+	var stripeBilling *billing.Stripe
+	if settings.BillingEnabled {
+		if settings.AuthMode != auth.ModeOIDC {
+			logger.Error("configure billing", "error", "Stripe billing requires GOGIF_AUTH_MODE=oidc")
+			os.Exit(1)
+		}
+		stripeBilling, err = billing.NewStripe(billing.Options{
+			SecretKey: settings.StripeSecretKey, WebhookSecret: settings.StripeWebhookSecret, PublicURL: settings.PublicURL,
+			Catalog: plans, Accounts: accounts, KV: catalog,
+		})
+		if err != nil {
+			logger.Error("configure billing", "error", err)
+			os.Exit(1)
+		}
+	}
 	commons, err := wikimedia.New(wikimedia.Options{})
 	if err != nil {
 		logger.Error("configure Wikimedia Commons", "error", err)
@@ -279,6 +329,12 @@ func main() {
 		CinematicStatus:   pipelineStatus,
 		ReferenceFetcher:  referenceFetcher,
 		VideoDecoder:      videoDecoder,
+		Auth:              authManager,
+		Accounts:          accounts,
+		Plans:             plans,
+		Usage:             usage,
+		LibraryCatalog:    mediaRepository,
+		Billing:           stripeBilling,
 	})
 	writeTimeout := 30 * time.Second
 	if videoDecoder != nil {
