@@ -79,8 +79,8 @@ textarea::placeholder { color: #70737a; }
 .search-options { display: flex; align-items: center; justify-content: flex-end; gap: 9px; margin-top: 10px; color: var(--muted); font-size: .7rem; }
 .search-options label { font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
 .search-options select { width: auto; min-width: 150px; padding: 8px 31px 8px 10px; }
-.create-toolbar { position: relative; min-height: 33px; margin-top: 10px; }
-.controls.create-controls { padding: 0 3px; }
+.create-toolbar { position: relative; min-height: 41px; margin-top: 10px; }
+.controls.create-controls { padding: 8px 3px 0; }
 .create-controls > summary { min-height: 33px; display: flex; align-items: center; gap: 9px; margin-left: -10px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: rgb(255 255 255 / 3%); list-style: none; transition: background .16s, border-color .16s, color .16s; }
 .create-controls > summary::-webkit-details-marker { display: none; }
 .create-controls > summary::after { content: ""; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg) translate(-1px, -1px); transition: transform .16s; }
@@ -89,7 +89,7 @@ textarea::placeholder { color: #70737a; }
 .create-controls[open] > summary { border-color: rgb(232 255 71 / 38%); color: var(--ink); }
 .create-controls > summary:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
 .create-controls .control-grid { width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 8px; padding-top: 17px; border-top: 1px solid var(--line); }
-.create-output { position: absolute; top: 0; right: 0; margin-top: 0; }
+.create-output { position: absolute; top: 8px; right: 0; margin-top: 0; }
 .upload-editor { max-width: 780px; margin: 13px auto 0; }
 .upload-picker { display: grid; gap: 4px; padding: 17px 20px; border: 1px dashed rgb(112 214 255 / 45%); border-radius: 13px; background: rgb(112 214 255 / 6%); text-align: left; cursor: pointer; }
 .upload-picker:hover { border-color: var(--blue); background: rgb(112 214 255 / 10%); }
