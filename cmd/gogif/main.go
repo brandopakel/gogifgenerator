@@ -36,6 +36,7 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/provider/wikimedia"
 	"github.com/brandopakel/gogifgenerator/internal/provider/yarn"
 	"github.com/brandopakel/gogifgenerator/internal/reference"
+	"github.com/brandopakel/gogifgenerator/internal/scene"
 	"github.com/brandopakel/gogifgenerator/internal/store"
 	"github.com/brandopakel/gogifgenerator/internal/video"
 	"github.com/brandopakel/gogifgenerator/internal/video/ffmpeg"
@@ -101,6 +102,29 @@ func main() {
 	})
 	accounts := account.NewRepository(catalog)
 	usage := account.NewLedger(catalog)
+	var sceneRepository *scene.Repository
+	if settings.SceneJobsEnabled {
+		if settings.AuthMode == auth.ModeDisabled {
+			logger.Error("configure Scene jobs", "error", "accounts must be enabled before Scene jobs")
+			os.Exit(1)
+		}
+		if len(settings.SceneWorkerToken) < 32 {
+			logger.Error("configure Scene jobs", "error", "GOGIF_SCENE_WORKER_TOKEN must contain at least 32 characters")
+			os.Exit(1)
+		}
+		targets := make([]scene.EngineTarget, 0, len(settings.SceneTargets))
+		for _, target := range settings.SceneTargets {
+			targets = append(targets, scene.EngineTarget(target))
+		}
+		sceneRepository, err = scene.NewRepository(catalog, scene.Options{AllowedTargets: targets})
+		if err != nil {
+			logger.Error("configure Scene jobs", "error", err)
+			os.Exit(1)
+		}
+		if catalogBackend == "memory" {
+			logger.Warn("Scene jobs use ephemeral memory; configure GOGIF_MEMKV_ADDR before production testing")
+		}
+	}
 	var identityProvider auth.Provider
 	if settings.AuthMode == auth.ModeOIDC {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -342,6 +366,9 @@ func main() {
 		Usage:             usage,
 		LibraryCatalog:    mediaRepository,
 		Billing:           stripeBilling,
+		Scenes:            sceneRepository,
+		SceneWorkerToken:  settings.SceneWorkerToken,
+		SceneLease:        2 * time.Minute,
 	})
 	writeTimeout := 30 * time.Second
 	if videoDecoder != nil {
@@ -380,7 +407,7 @@ func main() {
 	if stillGenerator != nil {
 		imageGeneratorID = stillGenerator.Descriptor().ID
 	}
-	logger.Info("GoGIF is ready", "url", httpapi.AddressURL(settings.Address), "ai", paidAIEnabled, "image_generator", imageGeneratorID, "quality_pipeline", pipelineStatus.Enabled, "catalog", catalogBackend)
+	logger.Info("GoGIF is ready", "url", httpapi.AddressURL(settings.Address), "ai", paidAIEnabled, "image_generator", imageGeneratorID, "quality_pipeline", pipelineStatus.Enabled, "scene_jobs", sceneRepository != nil, "catalog", catalogBackend)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)

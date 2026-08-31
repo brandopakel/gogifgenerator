@@ -77,6 +77,22 @@ func TestQualityPipelineRequiresExplicitOptIn(t *testing.T) {
 	}
 }
 
+func TestSceneJobsRequireExplicitOptInAndDefaultToUnreal(t *testing.T) {
+	t.Setenv("GOGIF_ENABLE_SCENE_JOBS", "")
+	t.Setenv("GOGIF_SCENE_TARGETS", "")
+	settings := Load()
+	if settings.SceneJobsEnabled || len(settings.SceneTargets) != 1 || settings.SceneTargets[0] != "unreal" {
+		t.Fatalf("scene defaults = %#v", settings)
+	}
+	t.Setenv("GOGIF_ENABLE_SCENE_JOBS", "true")
+	t.Setenv("GOGIF_SCENE_WORKER_TOKEN", "worker-secret")
+	t.Setenv("GOGIF_SCENE_TARGETS", "unreal, unity,unreal")
+	settings = Load()
+	if !settings.SceneJobsEnabled || settings.SceneWorkerToken != "worker-secret" || len(settings.SceneTargets) != 2 || settings.SceneTargets[0] != "unreal" || settings.SceneTargets[1] != "unity" {
+		t.Fatalf("scene overrides = %#v", settings)
+	}
+}
+
 func TestAccountsAndBillingRequireExplicitConfiguration(t *testing.T) {
 	t.Setenv("GOGIF_AUTH_MODE", "oidc")
 	t.Setenv("GOGIF_PUBLIC_URL", "https://gogif.example")

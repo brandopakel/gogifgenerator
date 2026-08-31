@@ -32,6 +32,9 @@ type Config struct {
 	BlenderExecutable      string
 	FFmpegExecutable       string
 	QualityPipelineEnabled bool
+	SceneJobsEnabled       bool
+	SceneWorkerToken       string
+	SceneTargets           []string
 	UnityExecutable        string
 	UnityProject           string
 	UnityMethod            string
@@ -83,6 +86,9 @@ func Load() Config {
 		BlenderExecutable:      envOr("GOGIF_BLENDER_EXECUTABLE", "blender"),
 		FFmpegExecutable:       envOr("GOGIF_FFMPEG_EXECUTABLE", "ffmpeg"),
 		QualityPipelineEnabled: envBool("GOGIF_ENABLE_QUALITY_PIPELINE"),
+		SceneJobsEnabled:       envBool("GOGIF_ENABLE_SCENE_JOBS"),
+		SceneWorkerToken:       os.Getenv("GOGIF_SCENE_WORKER_TOKEN"),
+		SceneTargets:           envList("GOGIF_SCENE_TARGETS", []string{"unreal"}),
 		UnityExecutable:        envOr("GOGIF_UNITY_EXECUTABLE", "Unity"),
 		UnityProject:           os.Getenv("GOGIF_UNITY_PROJECT"),
 		UnityMethod:            envOr("GOGIF_UNITY_METHOD", "GoGIF.Editor.BatchRenderer.Render"),
@@ -129,4 +135,21 @@ func envInt(name string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func envList(name string, fallback []string) []string {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return append([]string(nil), fallback...)
+	}
+	result := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, item := range strings.Split(value, ",") {
+		item = strings.ToLower(strings.TrimSpace(item))
+		if item != "" && !seen[item] {
+			seen[item] = true
+			result = append(result, item)
+		}
+	}
+	return result
 }

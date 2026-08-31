@@ -1,5 +1,7 @@
 # Experimental scene pipeline
 
+Hosting, worker isolation, licensing gates, and the new asynchronous API contract are documented in [Scene workspace hosting](SCENE_HOSTING.md).
+
 The product direction separates semantic creation from scene rendering:
 
 ```text

@@ -35,6 +35,7 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/provider"
 	"github.com/brandopakel/gogifgenerator/internal/reference"
 	"github.com/brandopakel/gogifgenerator/internal/render"
+	"github.com/brandopakel/gogifgenerator/internal/scene"
 	"github.com/brandopakel/gogifgenerator/internal/store"
 	"github.com/brandopakel/gogifgenerator/internal/video"
 	"github.com/brandopakel/gogifgenerator/webapp"
@@ -65,6 +66,9 @@ type Options struct {
 	Usage             *account.Ledger
 	LibraryCatalog    *media.Repository
 	Billing           *billing.Stripe
+	Scenes            *scene.Repository
+	SceneWorkerToken  string
+	SceneLease        time.Duration
 }
 
 func New(options Options) http.Handler {
@@ -109,6 +113,13 @@ func New(options Options) http.Handler {
 	mux.HandleFunc("GET /api/v1/gifs/{id}", server.generated)
 	mux.HandleFunc("POST /api/v1/models/generate", server.generateModel)
 	mux.HandleFunc("GET /api/v1/models/{id}", server.generatedModel)
+	mux.HandleFunc("GET /api/v1/scenes", server.requireAccount(server.listScenes))
+	mux.HandleFunc("POST /api/v1/scenes", server.requireAccount(server.createScene))
+	mux.HandleFunc("GET /api/v1/scenes/{id}", server.requireAccount(server.getScene))
+	mux.HandleFunc("POST /api/v1/scenes/{id}/cancel", server.requireAccount(server.cancelScene))
+	mux.HandleFunc("POST /api/v1/scene-jobs/claim", server.sceneWorker(server.claimSceneJob))
+	mux.HandleFunc("POST /api/v1/scene-jobs/{id}/heartbeat", server.sceneWorker(server.heartbeatSceneJob))
+	mux.HandleFunc("POST /api/v1/scene-jobs/{id}/finish", server.sceneWorker(server.finishSceneJob))
 	mux.Handle("/", staticHandler())
 	var handler http.Handler = mux
 	if options.Auth != nil {
@@ -276,6 +287,7 @@ func (s *server) publicConfig(w http.ResponseWriter, _ *http.Request) {
 		"image_generator":  imageGeneratorDescriptor(s.options.ImageGenerator),
 		"model_generator":  modelGeneratorDescriptor(s.options.ModelGenerator),
 		"quality_pipeline": s.options.CinematicStatus,
+		"scene_workspace":  sceneWorkspaceDescriptor(s.options.Scenes),
 		"video_editor":     videoDecoderDescriptor(s.options.VideoDecoder),
 	})
 }

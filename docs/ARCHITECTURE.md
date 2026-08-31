@@ -17,6 +17,7 @@ The input and result surfaces are shared. GIF and 3D outputs remain distinct med
 | `internal/imagegen` | Prompt/reference images → generated still image | Local Blender procedural adapter and native ComfyUI adapter |
 | `internal/modelgen` | Prompt → portable 3D asset | Allowlisted ComfyUI Tripo 3.1 and Hunyuan 3D 3.1 workflows returning validated GLB bytes |
 | `internal/cinematic` | Multi-engine job manifest, stage isolation, pass compositing, and final sequence validation | Blender FBX stage, Unity 6.3 batch stage, Unreal Engine 5 batch stage, and FFmpeg adaptive-palette encoder |
+| `internal/scene` | Persistent Scene projects and pull-worker coordination | engine-target allowlist, leases, retries, progress, cancellation, and artifact metadata |
 | `internal/reference` | Approved provider item → bounded temporary input | Revalidation, exact-host allowlist, MIME/size checks, SHA-256, deletion |
 | `internal/gif` | Stable domain contract and safety bounds | Dimensions, timing, palette, motion, caption |
 | `internal/render` | Animation spec → encoded asset | Pure-Go indexed-color GIF renderer |
@@ -82,6 +83,8 @@ The pure-Go renderer is universally buildable and owns final cropping, captions,
 The normal GIF contract is now deliberately small: ComfyUI or another configured semantic generator creates recognizable reference imagery, Go applies bounded 2.5D motion, and the encoder returns a GIF. Blender, Unity, and Unreal are not selectable quality levels in that flow.
 
 The existing cinematic proof-of-concept is retained as developer infrastructure while it is refactored into a Scene job contract. In that target contract, Blender prepares portable assets and a scene selects either Unity 6.3 for real-time/interactivity/VFX or Unreal Engine 5 for cinematic rendering. FFmpeg creates MP4/WebM masters and optional GIF derivatives. Running both real-time engines consecutively is no longer the product architecture.
+
+`internal/scene` now implements the control-plane half of that contract. An authenticated request creates an owner-scoped project and queued job; a remote worker claims a short lease for an allowed target, renews progress through heartbeats, and reports retryable or terminal completion. The API remains a single writer while it uses the small KV interface. A production multi-replica deployment must replace that queue index with transactional claims or a managed at-least-once queue and preserve idempotent completion.
 
 Every experimental engine job uses a private temporary workspace and a Go-authored versioned manifest. HTTP clients cannot choose filesystem paths or command arguments. Each stage has a deadline and bounded diagnostics, and downstream work begins only after the expected contract passes size, format, dimension, and count validation. The legacy proof-of-concept is disabled unless `GOGIF_ENABLE_QUALITY_PIPELINE=true` and is reachable only through the developer-only `generation_mode=studio` API. The PWA always sends `generation_mode=semantic`; neither 3D editor provides prompt-level synthesis by itself.
 
