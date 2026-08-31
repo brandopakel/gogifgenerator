@@ -79,7 +79,7 @@ Comfy Cloud API execution requires a Creator or Pro subscription. FLUX 1.1 Pro U
 
 ## ComfyUI 3D workflows
 
-The **3D** tab is a separate output pipeline. It runs an allowlisted ComfyUI recipe, validates the returned binary glTF signature and 256 MiB size bound, stores the GLB as `media.KindModel`, and returns a managed model URL. The browser uses `<model-viewer>` for camera control and auto-rotation. Save `.glb` always works; file share and direct binary clipboard copy depend on the browser, with a managed-URL clipboard fallback.
+**Create → 3D model** selects a separate output pipeline beneath the shared Create workspace. It runs an allowlisted ComfyUI recipe, validates the returned binary glTF signature and 256 MiB size bound, stores the GLB as `media.KindModel`, and returns a managed model URL. The browser uses `<model-viewer>` for camera control and auto-rotation. Save `.glb` always works; file share and direct binary clipboard copy depend on the browser, with a managed-URL clipboard fallback.
 
 Two prompt recipes are currently registered:
 

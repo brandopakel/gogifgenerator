@@ -247,14 +247,38 @@ func TestFirstClass3DModelCreationAndActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, marker := range []string{`data-mode="model"`, `id="model-recipe"`, `id="model-preview"`, `model-viewer/4.3.1/model-viewer.min.js`} {
+	for _, marker := range []string{`id="create-kind"`, `<option value="model">3D model</option>`, `id="model-recipe"`, `id="model-preview"`, `model-viewer/4.3.1/model-viewer.min.js`} {
 		if !strings.Contains(string(index), marker) {
 			t.Fatalf("index.html does not contain %q", marker)
 		}
 	}
+	if strings.Contains(string(index), `data-mode="model"`) {
+		t.Fatal("3D remains a top-level workspace instead of a Create output")
+	}
 	for _, marker := range []string{"/api/v1/models/generate", "presentModelResult", "model/gltf-binary", "gogif-model.glb", "Save .GLB"} {
 		if !strings.Contains(string(script), marker) {
 			t.Fatalf("app.js does not contain %q", marker)
+		}
+	}
+	for _, marker := range []string{"elements.createKind.addEventListener('change'", "setMode(elements.createKind.value === 'model' ? 'model' : 'create')", "selectedTopLevelMode = modeling ? 'create' : mode"} {
+		if !strings.Contains(string(script), marker) {
+			t.Fatalf("app.js does not contain %q", marker)
+		}
+	}
+}
+
+func TestSourceSearchExplainsMediaMatches(t *testing.T) {
+	script, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles, err := fs.ReadFile(Files(), "app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{"description: item.description", "showMetadata: true", "source-card-title", "source-card-meta"} {
+		if !strings.Contains(string(script), marker) && !strings.Contains(string(styles), marker) {
+			t.Fatalf("source search does not contain %q", marker)
 		}
 	}
 }

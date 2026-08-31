@@ -79,9 +79,13 @@ func (c *Commons) Search(ctx context.Context, query provider.Query) (provider.Pa
 	params := url.Values{}
 	params.Set("action", "query")
 	params.Set("generator", "search")
-	params.Set("gsrsearch", query.Text)
+	params.Set("gsrsearch", mediaSearchQuery(query.Text))
 	params.Set("gsrnamespace", "6")
 	params.Set("gsrwhat", "text")
+	params.Set("gsrinfo", "totalhits|suggestion|rewrittenquery")
+	params.Set("gsrenablerewrites", "1")
+	params.Set("mediasearch", "true")
+	params.Set("uselang", query.Locale)
 	params.Set("gsrlimit", strconv.Itoa(query.Limit))
 	if offset > 0 {
 		params.Set("gsroffset", strconv.Itoa(offset))
@@ -102,6 +106,10 @@ func (c *Commons) Search(ctx context.Context, query provider.Query) (provider.Pa
 		}
 	}
 	return page, nil
+}
+
+func mediaSearchQuery(query string) string {
+	return "filetype:bitmap|drawing|video " + strings.TrimSpace(query)
 }
 
 func (c *Commons) Resolve(ctx context.Context, externalID, locale string) (provider.Result, error) {

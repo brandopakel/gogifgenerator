@@ -17,8 +17,9 @@ func TestSearchNormalizesResultsAndRights(t *testing.T) {
 		receivedUserAgent = r.Header.Get("User-Agent")
 		query := r.URL.Query()
 		for key, want := range map[string]string{
-			"action": "query", "generator": "search", "gsrsearch": "victory dance",
+			"action": "query", "generator": "search", "gsrsearch": "filetype:bitmap|drawing|video victory dance",
 			"gsrnamespace": "6", "gsrlimit": "2", "prop": "imageinfo",
+			"gsrwhat": "text", "gsrinfo": "totalhits|suggestion|rewrittenquery", "gsrenablerewrites": "1", "mediasearch": "true", "uselang": "en",
 			"format": "json", "formatversion": "2", "iiextmetadatalanguage": "en",
 		} {
 			if got := query.Get(key); got != want {

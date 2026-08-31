@@ -17,7 +17,7 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Optional, disabled-by-default OpenAI art direction through the Responses API and strict structured output
 - Automatic local fallback if the AI provider is unavailable
 - Responsive, installable PWA embedded in the Go binary
-- Free Wikimedia Commons search through a normalized, rights-aware provider adapter
+- Free Wikimedia Commons search through its media-specific relevance profile, with visible match titles and normalized rights metadata
 - Free GifCities search across Internet Archive's archived GeoCities GIF index
 - Free Prelinger archival-film search with item-specific license normalization and on-demand, provider-hosted video previews
 - Local WebVTT/SRT quote matching that jumps a selected Prelinger preview to the matching timecode
@@ -181,7 +181,7 @@ This queues only GoGIF's server-owned FLUX 1.1 Pro Ultra graph, polls the curren
 
 Animated GIF is not a generally supported Web Clipboard MIME type. When the browser rejects `image/gif`, GoGIF's **Copy frame** action writes a real PNG still to the clipboard; **Share** and **Download GIF** preserve animation. If even PNG clipboard writing is unavailable, Copy falls back to the managed GIF URL.
 
-To enable the **3D** tab with curated prompt-to-GLB workflows, create a Comfy account API key, add credits, and explicitly authorize model-generation spend. The current cloud-first configuration is:
+To enable **Create → 3D model** with curated prompt-to-GLB workflows, create a Comfy account API key, add credits, and explicitly authorize model-generation spend. The current cloud-first configuration is:
 
 ```sh
 export COMFY_CLOUD_API_KEY="your-comfy-account-key"

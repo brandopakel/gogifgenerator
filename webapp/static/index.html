@@ -38,7 +38,6 @@
             <button id="create-tab" class="mode active" data-mode="create" role="tab" aria-controls="create-panel" aria-selected="true" type="button">Create</button>
             <button id="edit-tab" class="mode" data-mode="edit" role="tab" aria-controls="create-panel" aria-selected="false" type="button">Edit</button>
             <button id="search-tab" class="mode" data-mode="search" role="tab" aria-controls="search-panel" aria-selected="false" type="button">Search</button>
-            <button id="model-tab" class="mode" data-mode="model" role="tab" aria-controls="create-panel" aria-selected="false" type="button">3D</button>
             <button id="library-tab" class="mode" data-mode="library" role="tab" aria-controls="library-panel" aria-selected="false" type="button" hidden>Library</button>
           </div>
 
@@ -51,6 +50,13 @@
             </button>
           </form>
         </div>
+		<div id="create-options" class="search-options">
+		  <label for="create-kind">Output</label>
+		  <select id="create-kind">
+			<option value="gif">GIF</option>
+			<option value="model">3D model</option>
+		  </select>
+		</div>
         <div id="search-options" class="search-options" hidden>
           <label for="search-scope">Search for</label>
           <select id="search-scope">

@@ -4,7 +4,8 @@ const elements = {
   submit: document.querySelector('#submit-button'),
   submitLabel: document.querySelector('#submit-label'),
   modes: [...document.querySelectorAll('.mode')],
-  modelTab: document.querySelector('#model-tab'),
+	createOptions: document.querySelector('#create-options'),
+	createKind: document.querySelector('#create-kind'),
   createPanel: document.querySelector('#create-panel'),
   searchPanel: document.querySelector('#search-panel'),
   previewShell: document.querySelector('#preview-shell'),
@@ -207,7 +208,9 @@ function applyPlanControls() {
   semantic.disabled = !plan.semantic || !state.config?.image_generator?.semantic;
   studio.disabled = !plan.studio || !state.config?.quality_pipeline?.enabled;
   if (elements.generationMode.selectedOptions[0]?.disabled) elements.generationMode.value = 'fast';
-  elements.modelTab?.classList.toggle('locked', !plan.models_3d);
+	const modelOption = elements.createKind.querySelector('option[value="model"]');
+	modelOption.disabled = !plan.models_3d;
+	if (state.mode === 'model' && !plan.models_3d) setMode('create');
 }
 
 function renderPricing() {
@@ -402,6 +405,7 @@ async function openLibraryItem(item) {
     if (!response.ok) throw new Error('This creation could not be opened.');
     const blob = await response.blob();
     if (item.kind === 'model') {
+		elements.createKind.value = 'model';
       setMode('model');
       presentModelResult(blob, item.url);
     } else {
@@ -551,19 +555,22 @@ function setMode(mode) {
 	const changingMediaType = (mode === 'model') !== (state.mode === 'model');
   state.mode = mode;
 	if (changingMediaType && state.resultBlob) clearResult(mode === 'edit');
+	const modeling = mode === 'model';
+	elements.createKind.value = modeling ? 'model' : 'gif';
+	const selectedTopLevelMode = modeling ? 'create' : mode;
   for (const button of elements.modes) {
-    const active = button.dataset.mode === mode;
+		const active = button.dataset.mode === selectedTopLevelMode;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   }
   const searching = mode === 'search';
   const editing = mode === 'edit';
-	const modeling = mode === 'model';
   const library = mode === 'library';
   elements.createPanel.hidden = searching || library;
   elements.searchPanel.hidden = !searching;
   elements.libraryPanel.hidden = !library;
   elements.form.hidden = library;
+	elements.createOptions.hidden = editing || searching || library;
   elements.searchOptions.hidden = !searching;
 	elements.modelOptions.hidden = !modeling;
   elements.uploadEditor.hidden = !editing;
@@ -1544,7 +1551,9 @@ async function searchWikimedia(query, cursor = '') {
 			preview: item.preview_url,
 			mediaURL: item.original_url || item.preview_url,
 			title: item.title || query,
+			description: item.description || '',
 			note: [item.author, item.license_name].filter(Boolean).join(' · '),
+			showMetadata: true,
 			allowedHandling: item.allowed_handling,
 			transformPolicy: item.transform_policy,
 			derivatives: item.derivatives,
@@ -1605,6 +1614,7 @@ async function searchPrelinger(query, cursor = '') {
 			author: item.author || '',
 			durationMS: item.duration_ms || 0,
 			note: [item.author, item.license_name || 'Check item rights'].filter(Boolean).join(' · '),
+			showMetadata: true,
 			allowedHandling: item.allowed_handling,
 			transformPolicy: item.transform_policy,
 			derivatives: item.derivatives,
@@ -1636,6 +1646,7 @@ async function searchNASA(query, cursor = '') {
 			author: item.author || '',
 			durationMS: item.duration_ms || 0,
 			note: [item.author, 'Review third-party, logo, and likeness restrictions'].filter(Boolean).join(' · '),
+			showMetadata: true,
 			allowedHandling: item.allowed_handling,
 			transformPolicy: item.transform_policy,
 			derivatives: item.derivatives,
@@ -1774,14 +1785,14 @@ function searchCard(item) {
 	links.className = 'search-card-links';
 	let quote;
 	let duration;
-	if (isClip || item.externalOnly) {
+	if (isClip || item.externalOnly || item.showMetadata) {
 		const title = document.createElement('strong');
-		title.className = isClip ? 'clip-card-title' : 'external-result-title';
+		title.className = isClip ? 'clip-card-title' : item.showMetadata ? 'source-card-title' : 'external-result-title';
 		title.textContent = item.title;
 		details.append(title);
 		if (item.note) {
 			const note = document.createElement('span');
-			note.className = isClip ? 'clip-card-meta' : 'external-result-note';
+			note.className = isClip ? 'clip-card-meta' : item.showMetadata ? 'source-card-meta' : 'external-result-note';
 			note.textContent = item.note;
 			details.append(note);
 		}
@@ -1965,13 +1976,22 @@ function showToast(message) {
 }
 
 for (const mode of elements.modes) mode.addEventListener('click', () => {
-  if (mode.dataset.mode === 'model' && state.account?.enabled && !state.account?.plan?.models_3d) {
-    showPricing();
-    return;
-  }
+	if (mode.dataset.mode === 'create' && state.mode === 'model') {
+		elements.prompt.focus();
+		return;
+	}
   setMode(mode.dataset.mode);
 });
 elements.form.addEventListener('submit', submitPrompt);
+	elements.createKind.addEventListener('change', () => {
+		if (elements.createKind.value === 'model' && state.account?.enabled && !state.account?.plan?.models_3d) {
+			elements.createKind.value = 'gif';
+			showPricing();
+			return;
+		}
+		setMode(elements.createKind.value === 'model' ? 'model' : 'create');
+		elements.prompt.focus();
+	});
 elements.pricing.addEventListener('click', showPricing);
 elements.account.addEventListener('click', showPricing);
 elements.manageBilling.addEventListener('click', openBillingPortal);

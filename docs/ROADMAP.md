@@ -5,6 +5,7 @@
 - Prompt-to-GIF vertical slice
 - Offline and AI-directed planning
 - Responsive installable PWA
+- Shared Create workspace with GIF and 3D model output selection (implemented)
 - Wikimedia Commons search through the Go provider API
 - GifCities search through the Go provider API
 - Prelinger film search and on-demand provider-hosted video previews
