@@ -9,6 +9,7 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Pure-Go animated GIF renderer with orbit, pulse, wave, and confetti motion systems
 - Free local Blender still generation, animated and encoded into GIFs by Go
 - Native local ComfyUI adapter for text-to-image and one licensed reference image
+- Hosted-GPU ComfyUI FLUX 1.1 Pro Ultra adapter with an allowlisted server-owned workflow and exact output normalization
 - First-class prompt-to-GLB creation through allowlisted ComfyUI Tripo 3.1 and Hunyuan 3D 3.1 workflows, with interactive preview, save, share, and clipboard/link fallbacks
 - Server-side GPT Image 2 adapter for high-fidelity prompt-to-image and reference editing, separately paid and explicitly opt-in
 - Capability-gated cinematic pipeline for AI/reference imagery → Blender FBX assets → Unity 6.3 motion/VFX → Unreal Engine 5 beauty frames → FFmpeg GIF encoding
@@ -66,6 +67,7 @@ The multi-engine quality pipeline is implemented behind an explicit opt-in. The 
 | GIPHY search | Yes, `GIPHY_API_KEY` | Optional provider integration |
 | OpenAI art-direction planner | Yes, `OPENAI_API_KEY` plus `GOGIF_ENABLE_PAID_AI=true` | Paid opt-in; never part of zero-spend mode |
 | OpenAI semantic imagery | Yes, `OPENAI_API_KEY` plus `GOGIF_ENABLE_PAID_IMAGE_GENERATION=true` | Separate paid opt-in; key stays server-side |
+| Comfy hosted semantic imagery | Yes, `COMFY_CLOUD_API_KEY` plus `GOGIF_ENABLE_PAID_IMAGE_GENERATION=true` | FLUX Partner credits; Comfy Cloud execution also requires a Creator/Pro subscription |
 | ComfyUI Partner Node 3D creation | Yes, `COMFY_CLOUD_API_KEY` plus `GOGIF_ENABLE_PAID_MODEL_GENERATION=true` | Separate paid opt-in; Tripo/Hunyuan credits and a Comfy account are required |
 
 ### Optional external services
@@ -92,6 +94,19 @@ make run
 ```
 
 This is independent from AI planning: enabling image generation does not implicitly enable the paid planner. GoGIF requests a high-resolution semantic keyframe, normalizes it to the GIF canvas, gives it restrained 2.5D camera motion, and then sends it through the Blender, Unity, Unreal, and FFmpeg stages. See the [official OpenAI image generation guide](https://developers.openai.com/api/docs/guides/image-generation).
+
+To run subject-aware imagery on hosted GPU infrastructure through ComfyUI instead of loading diffusion weights on the GoGIF Mac:
+
+```sh
+export COMFY_CLOUD_API_KEY="your-comfy-account-key"
+export GOGIF_ENABLE_PAID_IMAGE_GENERATION=true
+export GOGIF_IMAGE_GENERATOR=comfyui-cloud
+export GOGIF_COMFYUI_IMAGE_URL=https://cloud.comfy.org/api
+export GOGIF_COMFYUI_IMAGE_RECIPE=flux-ultra
+make run
+```
+
+This queues only GoGIF's server-owned FLUX 1.1 Pro Ultra graph, polls the current Cloud Jobs API, retrieves the generated image without forwarding the key to signed storage, and center-crops it to the requested GIF dimensions. Cloud API execution requires an eligible Comfy subscription and the Partner Node consumes Comfy credits.
 
 To enable the **3D** tab with curated prompt-to-GLB workflows, create a Comfy account API key, add credits, and explicitly authorize model-generation spend. The local Desktop server can orchestrate the paid Partner Nodes without loading a large 3D model into this Mac's memory:
 

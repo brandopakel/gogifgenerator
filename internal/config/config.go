@@ -21,6 +21,8 @@ type Config struct {
 	ComfyUIURL             string
 	ComfyUICheckpoint      string
 	ComfyUIInputDir        string
+	ComfyUIImageURL        string
+	ComfyUIImageRecipe     string
 	ComfyUIModelURL        string
 	ComfyUIAPIKey          string
 	ComfyUIModelRecipe     string
@@ -55,6 +57,8 @@ func Load() Config {
 		ComfyUIURL:             comfyUIURL,
 		ComfyUICheckpoint:      os.Getenv("GOGIF_COMFYUI_CHECKPOINT"),
 		ComfyUIInputDir:        os.Getenv("GOGIF_COMFYUI_INPUT_DIR"),
+		ComfyUIImageURL:        envOr("GOGIF_COMFYUI_IMAGE_URL", "https://cloud.comfy.org/api"),
+		ComfyUIImageRecipe:     strings.ToLower(strings.TrimSpace(envOr("GOGIF_COMFYUI_IMAGE_RECIPE", "flux-ultra"))),
 		ComfyUIModelURL:        envOr("GOGIF_COMFYUI_MODEL_URL", comfyUIURL),
 		ComfyUIAPIKey:          os.Getenv("COMFY_CLOUD_API_KEY"),
 		ComfyUIModelRecipe:     strings.ToLower(strings.TrimSpace(envOr("GOGIF_COMFYUI_MODEL_RECIPE", "tripo-3.1"))),

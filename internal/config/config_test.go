@@ -32,6 +32,21 @@ func TestPaidImageGenerationRequiresSeparateExplicitOptIn(t *testing.T) {
 	}
 }
 
+func TestComfyHostedImageDefaultsAndOverrides(t *testing.T) {
+	t.Setenv("GOGIF_COMFYUI_IMAGE_URL", "")
+	t.Setenv("GOGIF_COMFYUI_IMAGE_RECIPE", "")
+	settings := Load()
+	if settings.ComfyUIImageURL != "https://cloud.comfy.org/api" || settings.ComfyUIImageRecipe != "flux-ultra" {
+		t.Fatalf("hosted Comfy defaults = %#v", settings)
+	}
+	t.Setenv("GOGIF_COMFYUI_IMAGE_URL", "https://comfy.example/api")
+	t.Setenv("GOGIF_COMFYUI_IMAGE_RECIPE", "FLUX-ULTRA")
+	settings = Load()
+	if settings.ComfyUIImageURL != "https://comfy.example/api" || settings.ComfyUIImageRecipe != "flux-ultra" {
+		t.Fatalf("hosted Comfy overrides = %#v", settings)
+	}
+}
+
 func TestPaidModelGenerationRequiresSeparateExplicitOptIn(t *testing.T) {
 	t.Setenv("COMFY_CLOUD_API_KEY", "present-but-not-authorized")
 	t.Setenv("GOGIF_ENABLE_PAID_MODEL_GENERATION", "")

@@ -2,7 +2,7 @@
 
 GoGIF has three no-key creation paths. The built-in Go renderer is instant and dependency-free. Blender produces original procedural 3D art. ComfyUI runs a diffusion checkpoint locally and can transform one rights-approved Wikimedia image.
 
-It also has a separately opt-in hosted semantic path using OpenAI's Image API. Both semantic adapters implement the same `internal/imagegen` contract, so the downstream cinematic pipeline does not depend on a particular model vendor.
+It also has separately opt-in hosted semantic paths using OpenAI's Image API or a ComfyUI FLUX Partner workflow. Every semantic adapter implements the same `internal/imagegen` contract, so the downstream cinematic pipeline does not depend on a particular model vendor.
 
 A fourth, explicitly enabled cinematic path coordinates Blender, Unity 6.3, Unreal Engine 5, and FFmpeg. It has no hosted API dependency, but the editor installations are large and have their own activation, licensing, and hardware requirements. See [Cinematic pipeline](CINEMATIC_PIPELINE.md).
 
@@ -59,6 +59,23 @@ make run
 ```
 
 The model supports larger source resolutions than many GIF canvases. GoGIF generates at a supported square/portrait/landscape size, decodes and bounds the response, center-crops it to the requested aspect ratio, and resamples it to the exact output dimensions before any engine receives it. Hosted generation can incur charges and is never enabled merely because an API key happens to be present. See [OpenAI's image generation guide](https://developers.openai.com/api/docs/guides/image-generation).
+
+## Comfy hosted semantic imagery
+
+For this 8-GB Mac, the practical production route is to run semantic inference on hosted GPU infrastructure and reserve local memory for GoGIF plus the downstream creative engines. The current audited recipe uses ComfyUI's `FluxProUltraImageNode` in raw mode for natural-looking output, followed by `SaveImage`. Browser requests can set only the prompt, dimensions, and seed; they cannot provide nodes or workflow JSON.
+
+```sh
+export COMFY_CLOUD_API_KEY="your-comfy-account-key"
+export GOGIF_ENABLE_PAID_IMAGE_GENERATION=true
+export GOGIF_IMAGE_GENERATOR=comfyui-cloud
+export GOGIF_COMFYUI_IMAGE_URL=https://cloud.comfy.org/api
+export GOGIF_COMFYUI_IMAGE_RECIPE=flux-ultra
+make run
+```
+
+GoGIF sends the key in `X-API-Key` only to Comfy Cloud and supplies it in ComfyUI's documented `extra_data` field for the Partner Node. It follows Cloud's current `/api/jobs/{id}` status contract rather than the deprecated history endpoint. The `/view` redirect is restricted to HTTPS and followed without the API key. Returned image bytes and decoded pixel dimensions are bounded before the image is cropped and resampled to the exact GIF canvas.
+
+Comfy Cloud API execution requires a Creator or Pro subscription. FLUX 1.1 Pro Ultra is a paid Partner Node, so its inference also consumes account credits. A local ComfyUI process can orchestrate the same hosted Partner Node by setting `GOGIF_COMFYUI_IMAGE_URL=http://127.0.0.1:8188`; this avoids the Cloud subscription requirement but still requires Comfy credits and a running local backend.
 
 ## ComfyUI 3D workflows
 

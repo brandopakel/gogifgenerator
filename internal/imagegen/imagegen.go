@@ -9,7 +9,10 @@ import (
 	"strings"
 )
 
-var ErrInvalidRequest = errors.New("imagegen: invalid request")
+var (
+	ErrInvalidRequest = errors.New("imagegen: invalid request")
+	ErrUnavailable    = errors.New("imagegen: generator unavailable")
+)
 
 const (
 	MaxInputs     = 4

@@ -176,6 +176,44 @@ func TestSemanticGenerationUsesSemanticImageGenerator(t *testing.T) {
 	}
 }
 
+func TestSemanticCinematicGenerationKeepsPromptBelowMedia(t *testing.T) {
+	renderer := &recordingCinematicRenderer{}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate", bytes.NewBufferString(`{
+      "prompt": "a hero swinging through the city",
+      "width": 128,
+      "height": 128,
+      "frames": 4,
+      "generation_mode": "semantic"
+    }`))
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, CinematicRenderer: renderer, ImageGenerator: &recordingImageGenerator{}}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if renderer.request.Spec.ShowPrompt {
+		t.Fatalf("semantic cinematic request rendered a caption: %#v", renderer.request.Spec)
+	}
+}
+
+func TestSemanticBackendErrorExplainsLocalComfyFailure(t *testing.T) {
+	generator := &recordingImageGenerator{
+		descriptor: imagegen.Descriptor{ID: "comfyui-local", Label: "ComfyUI (local)", Semantic: true},
+		err:        imagegen.ErrUnavailable,
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate", bytes.NewBufferString(`{
+      "prompt": "a hero swinging through the city",
+      "width": 128,
+      "height": 128,
+      "frames": 4,
+      "generation_mode": "semantic"
+    }`))
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, ImageGenerator: generator}).ServeHTTP(response, request)
+	if response.Code != http.StatusBadGateway || !strings.Contains(response.Body.String(), "ComfyUI Desktop is not running") {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+}
+
 func TestGenerateFromUploadEditsPhoto(t *testing.T) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -611,7 +649,9 @@ func (p *recordingProvider) ResolveQuote(_ context.Context, externalID, locale, 
 }
 
 type recordingImageGenerator struct {
-	request imagegen.Request
+	request    imagegen.Request
+	descriptor imagegen.Descriptor
+	err        error
 }
 
 type recordingModelGenerator struct {
@@ -645,11 +685,17 @@ func (d *recordingVideoDecoder) Decode(_ context.Context, request video.Request)
 }
 
 func (g *recordingImageGenerator) Descriptor() imagegen.Descriptor {
+	if g.descriptor.ID != "" {
+		return g.descriptor
+	}
 	return imagegen.Descriptor{ID: "test-local", Label: "Test local", Local: true, Semantic: true, SupportsReferences: true}
 }
 
 func (g *recordingImageGenerator) Generate(_ context.Context, request imagegen.Request) (imagegen.Result, error) {
 	g.request = request
+	if g.err != nil {
+		return imagegen.Result{}, g.err
+	}
 	return imagegen.Result{Data: generatedTestPNG(nil), ContentType: "image/png", Engine: "test-local"}, nil
 }
 

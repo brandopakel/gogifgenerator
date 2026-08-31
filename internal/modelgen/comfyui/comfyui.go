@@ -22,7 +22,7 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/modelgen"
 )
 
-var ErrUnavailable = errors.New("comfyui model generation unavailable")
+var ErrUnavailable = fmt.Errorf("%w: comfyui model generation unavailable", modelgen.ErrUnavailable)
 
 const maxAPIResponseBytes = 4 << 20
 
@@ -202,7 +202,7 @@ func (g *Generator) queue(ctx context.Context, workflow map[string]any) (string,
 		return "", err
 	}
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("comfyui models: queue returned HTTP %d: %s", response.StatusCode, compactMessage(data))
+		return "", fmt.Errorf("%w: queue returned HTTP %d: %s", ErrUnavailable, response.StatusCode, compactMessage(data))
 	}
 	var queued struct {
 		PromptID string         `json:"prompt_id"`
@@ -234,47 +234,26 @@ type historyEntry struct {
 	} `json:"status"`
 }
 
+type cloudJob struct {
+	Status  string `json:"status"`
+	Outputs map[string]struct {
+		ThreeD []outputFile `json:"3d"`
+	} `json:"outputs"`
+	ExecutionError struct {
+		Message string `json:"exception_message"`
+	} `json:"execution_error"`
+}
+
 func (g *Generator) waitForOutput(ctx context.Context, promptID string) (outputFile, error) {
 	waitContext, cancel := context.WithTimeout(ctx, g.maxWait)
 	defer cancel()
 	for {
-		historyPath := "/history/" + url.PathEscape(promptID)
-		if g.cloud {
-			historyPath = "/history_v2/" + url.PathEscape(promptID)
-		}
-		request, err := http.NewRequestWithContext(waitContext, http.MethodGet, g.route(historyPath), nil)
+		output, done, err := g.readOutput(waitContext, promptID)
 		if err != nil {
 			return outputFile{}, err
 		}
-		g.authorize(request)
-		response, err := g.client.Do(request)
-		if err != nil {
-			if waitContext.Err() != nil {
-				return outputFile{}, waitContext.Err()
-			}
-			return outputFile{}, fmt.Errorf("%w: read history: %v", ErrUnavailable, err)
-		}
-		data, readErr := readLimited(response.Body, maxAPIResponseBytes)
-		_ = response.Body.Close()
-		if readErr != nil {
-			return outputFile{}, readErr
-		}
-		if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusNotFound {
-			return outputFile{}, fmt.Errorf("comfyui models: history returned HTTP %d: %s", response.StatusCode, compactMessage(data))
-		}
-		if response.StatusCode == http.StatusOK {
-			var history map[string]historyEntry
-			if err := json.Unmarshal(data, &history); err != nil {
-				return outputFile{}, fmt.Errorf("comfyui models: decode history: %w", err)
-			}
-			if entry, ok := history[promptID]; ok {
-				if output, ok := firstOutput(entry.Outputs); ok {
-					return output, nil
-				}
-				if entry.Status.Completed || strings.EqualFold(entry.Status.StatusStr, "error") {
-					return outputFile{}, errors.New("comfyui models: workflow completed without a GLB output")
-				}
-			}
+		if done {
+			return output, nil
 		}
 		timer := time.NewTimer(g.pollInterval)
 		select {
@@ -284,6 +263,64 @@ func (g *Generator) waitForOutput(ctx context.Context, promptID string) (outputF
 		case <-timer.C:
 		}
 	}
+}
+
+func (g *Generator) readOutput(ctx context.Context, promptID string) (outputFile, bool, error) {
+	path := "/history/" + url.PathEscape(promptID)
+	if g.cloud {
+		path = "/jobs/" + url.PathEscape(promptID)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, g.route(path), nil)
+	if err != nil {
+		return outputFile{}, false, err
+	}
+	g.authorize(request)
+	response, err := g.client.Do(request)
+	if err != nil {
+		return outputFile{}, false, fmt.Errorf("%w: read job status: %v", ErrUnavailable, err)
+	}
+	defer response.Body.Close()
+	data, err := readLimited(response.Body, maxAPIResponseBytes)
+	if err != nil {
+		return outputFile{}, false, err
+	}
+	if response.StatusCode == http.StatusNotFound {
+		return outputFile{}, false, nil
+	}
+	if response.StatusCode != http.StatusOK {
+		return outputFile{}, false, fmt.Errorf("%w: job status returned HTTP %d: %s", ErrUnavailable, response.StatusCode, compactMessage(data))
+	}
+	if g.cloud {
+		var job cloudJob
+		if err := json.Unmarshal(data, &job); err != nil {
+			return outputFile{}, false, fmt.Errorf("comfyui models: decode cloud job: %w", err)
+		}
+		if output, ok := firstOutput(job.Outputs); ok {
+			return output, true, nil
+		}
+		switch strings.ToLower(job.Status) {
+		case "failed", "error", "cancelled":
+			return outputFile{}, false, fmt.Errorf("comfyui models: hosted workflow %s: %s", job.Status, firstNonEmpty(job.ExecutionError.Message, "no GLB output"))
+		case "completed":
+			return outputFile{}, false, errors.New("comfyui models: hosted workflow completed without a GLB output")
+		}
+		return outputFile{}, false, nil
+	}
+	var history map[string]historyEntry
+	if err := json.Unmarshal(data, &history); err != nil {
+		return outputFile{}, false, fmt.Errorf("comfyui models: decode local history: %w", err)
+	}
+	entry, ok := history[promptID]
+	if !ok {
+		return outputFile{}, false, nil
+	}
+	if output, ok := firstOutput(entry.Outputs); ok {
+		return output, true, nil
+	}
+	if entry.Status.Completed || strings.EqualFold(entry.Status.StatusStr, "error") {
+		return outputFile{}, false, errors.New("comfyui models: workflow completed without a GLB output")
+	}
+	return outputFile{}, false, nil
 }
 
 func (g *Generator) fetchOutput(ctx context.Context, output outputFile) ([]byte, error) {

@@ -338,7 +338,17 @@ func (s *server) generate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, "Realistic AI generation is not configured. Configure OpenAI Images or ComfyUI, or choose Fast local.")
 		case errors.Is(err, errSemanticGeneration):
 			s.options.Logger.Warn("semantic GIF generation failed", "error", err)
-			writeError(w, http.StatusBadGateway, "The semantic image generator could not create this scene. Try again or choose Fast local.")
+			message := "The semantic image generator could not create this scene. Try again or choose Fast local."
+			if errors.Is(err, imagegen.ErrUnavailable) {
+				descriptor := imageGeneratorDescriptorValue(s.options.ImageGenerator)
+				switch descriptor.ID {
+				case "comfyui-local":
+					message = "ComfyUI Desktop is not running or stopped responding. Open ComfyUI, then try Realistic AI again—or choose Fast local."
+				case "comfyui-partner-flux-ultra":
+					message = "The hosted Comfy GPU service is temporarily unavailable. Check the Comfy subscription and credits, then try again."
+				}
+			}
+			writeError(w, http.StatusBadGateway, message)
 		default:
 			s.options.Logger.Error("create GIF", "error", err)
 			writeError(w, http.StatusInternalServerError, "could not render GIF")
@@ -723,6 +733,11 @@ func (s *server) generateFromReference(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) createGIF(ctx context.Context, request planner.Request, result planner.Result, inputs []imagegen.Input, requireGenerator bool) ([]byte, string, error) {
 	semanticRequired := strings.EqualFold(strings.TrimSpace(request.GenerationMode), "semantic") && len(inputs) == 0
+	if semanticRequired {
+		// The result screen already presents the prompt beneath the media. Keep
+		// semantic source art clean so text does not cover the generated scene.
+		result.Spec.ShowPrompt = false
+	}
 	if semanticRequired && (s.options.ImageGenerator == nil || !s.options.ImageGenerator.Descriptor().Semantic) {
 		return nil, "", errSemanticUnavailable
 	}
@@ -734,7 +749,7 @@ func (s *server) createGIF(ctx context.Context, request planner.Request, result 
 			return generated.Data, generated.Engine + "+" + result.Engine, nil
 		}
 		if semanticRequired {
-			return nil, "", fmt.Errorf("%w: %v", errSemanticGeneration, renderErr)
+			return nil, "", fmt.Errorf("%w: %w", errSemanticGeneration, renderErr)
 		}
 		s.options.Logger.Warn("cinematic renderer unavailable; using still-image pipeline", "renderer", s.options.CinematicRenderer.Descriptor().ID, "error", renderErr)
 	}
@@ -747,7 +762,7 @@ func (s *server) createGIF(ctx context.Context, request planner.Request, result 
 		if generateErr != nil {
 			if requireGenerator || semanticRequired {
 				if semanticRequired {
-					return nil, "", fmt.Errorf("%w: %v", errSemanticGeneration, generateErr)
+					return nil, "", fmt.Errorf("%w: %w", errSemanticGeneration, generateErr)
 				}
 				return nil, "", generateErr
 			}
@@ -860,6 +875,13 @@ func (r referenceGenerateRequest) plannerRequest() planner.Request {
 func imageGeneratorDescriptor(generator imagegen.Generator) any {
 	if generator == nil {
 		return nil
+	}
+	return generator.Descriptor()
+}
+
+func imageGeneratorDescriptorValue(generator imagegen.Generator) imagegen.Descriptor {
+	if generator == nil {
+		return imagegen.Descriptor{}
 	}
 	return generator.Descriptor()
 }

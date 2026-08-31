@@ -19,6 +19,7 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/httpapi"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen/blender"
+	"github.com/brandopakel/gogifgenerator/internal/imagegen/comfypartner"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen/comfyui"
 	openaiimage "github.com/brandopakel/gogifgenerator/internal/imagegen/openai"
 	"github.com/brandopakel/gogifgenerator/internal/media"
@@ -126,7 +127,9 @@ func main() {
 	var stillGenerator imagegen.Generator
 	imageGeneratorName := settings.ImageGenerator
 	if imageGeneratorName == "" {
-		if settings.PaidImageEnabled && settings.OpenAIAPIKey != "" {
+		if settings.PaidImageEnabled && settings.ComfyUIAPIKey != "" {
+			imageGeneratorName = "comfyui-cloud"
+		} else if settings.PaidImageEnabled && settings.OpenAIAPIKey != "" {
 			imageGeneratorName = "openai"
 		} else if settings.ComfyUICheckpoint != "" {
 			imageGeneratorName = "comfyui"
@@ -154,6 +157,19 @@ func main() {
 			os.Exit(1)
 		}
 		stillGenerator = generator
+	case "comfyui-cloud", "comfyui-partner":
+		if !settings.PaidImageEnabled || settings.ComfyUIAPIKey == "" {
+			logger.Error("configure hosted Comfy image generation", "error", "GOGIF_ENABLE_PAID_IMAGE_GENERATION=true and COMFY_CLOUD_API_KEY are required")
+			os.Exit(1)
+		}
+		generator, err := comfypartner.New(comfypartner.Options{
+			Endpoint: settings.ComfyUIImageURL, APIKey: settings.ComfyUIAPIKey, Recipe: settings.ComfyUIImageRecipe,
+		})
+		if err != nil {
+			logger.Error("configure hosted Comfy image generation", "error", err)
+			os.Exit(1)
+		}
+		stillGenerator = generator
 	case "openai":
 		if !settings.PaidImageEnabled || settings.OpenAIAPIKey == "" {
 			logger.Error("configure OpenAI image generation", "error", "GOGIF_ENABLE_PAID_IMAGE_GENERATION=true and OPENAI_API_KEY are required")
@@ -169,7 +185,7 @@ func main() {
 		}
 		stillGenerator = generator
 	default:
-		logger.Error("configure image generator", "error", "GOGIF_IMAGE_GENERATOR must be blender, comfyui, or openai")
+		logger.Error("configure image generator", "error", "GOGIF_IMAGE_GENERATOR must be blender, comfyui, comfyui-cloud, or openai")
 		os.Exit(1)
 	}
 

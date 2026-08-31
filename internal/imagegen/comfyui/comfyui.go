@@ -30,7 +30,7 @@ import (
 )
 
 var (
-	ErrUnavailable      = errors.New("comfyui: local server unavailable")
+	ErrUnavailable      = fmt.Errorf("%w: comfyui local server unavailable", imagegen.ErrUnavailable)
 	ErrUnsupportedInput = errors.New("comfyui: unsupported reference input")
 )
 
@@ -86,7 +86,7 @@ func New(options Options) (*Generator, error) {
 		}
 	}
 	if options.NegativePrompt == "" {
-		options.NegativePrompt = "blurry, low quality, watermark, distorted text"
+		options.NegativePrompt = "collage, split screen, multiple panels, border, frame, caption, text, watermark, blurry, low quality, distorted anatomy"
 	}
 	if options.Client == nil {
 		options.Client = &http.Client{Timeout: 30 * time.Second}
@@ -234,7 +234,7 @@ func (g *Generator) workflow(request imagegen.Request, inputName string) map[str
 		},
 		"4": map[string]any{"class_type": "CheckpointLoaderSimple", "inputs": map[string]any{"ckpt_name": g.checkpoint}},
 		"5": map[string]any{"class_type": "EmptyLatentImage", "inputs": map[string]any{"batch_size": 1, "height": request.Height, "width": request.Width}},
-		"6": map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"clip": []any{"4", 1}, "text": imagegen.CinematicPrompt(request.Prompt, request.Width, request.Height)}},
+		"6": map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"clip": []any{"4", 1}, "text": imagegen.CompactDiffusionPrompt(request.Prompt, request.Width, request.Height)}},
 		"7": map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"clip": []any{"4", 1}, "text": g.negativePrompt}},
 		"8": map[string]any{"class_type": "VAEDecode", "inputs": map[string]any{"samples": []any{"3", 0}, "vae": []any{"4", 2}}},
 		"9": map[string]any{"class_type": "PreviewImage", "inputs": map[string]any{"images": []any{"8", 0}}},

@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	ErrUnavailable = errors.New("openai image: service unavailable")
+	ErrUnavailable = fmt.Errorf("%w: openai image service unavailable", imagegen.ErrUnavailable)
 	ErrRejected    = errors.New("openai image: request rejected")
 )
 

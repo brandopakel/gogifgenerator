@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -69,6 +70,62 @@ func TestGenerateRejectsUnknownRecipeBeforeNetwork(t *testing.T) {
 	if _, err := generator.Generate(context.Background(), modelgen.Request{Prompt: "fox", Recipe: "arbitrary-workflow"}); err == nil {
 		t.Fatal("Generate() accepted an arbitrary workflow")
 	}
+}
+
+func TestGenerateUsesCloudJobsAPIAndDoesNotForwardKeyToOutputStorage(t *testing.T) {
+	glb := append([]byte("glTF"), make([]byte, 16)...)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/stored-model.glb" && r.Header.Get("X-API-Key") != "paid-partner-key" {
+			t.Errorf("missing Cloud API key on %s", r.URL.Path)
+		}
+		switch r.URL.Path {
+		case "/api/prompt":
+			_, _ = w.Write([]byte(`{"prompt_id":"cloud-model-job"}`))
+		case "/api/jobs/cloud-model-job":
+			_, _ = w.Write([]byte(`{"status":"completed","outputs":{"2":{"3d":[{"filename":"model.glb","subfolder":"gogif/models","type":"output"}]}}}`))
+		case "/api/view":
+			http.Redirect(w, r, "https://storage.example/stored-model.glb", http.StatusFound)
+		case "/stored-model.glb":
+			if r.Header.Get("X-API-Key") != "" {
+				t.Error("Comfy API key was forwarded to output storage")
+			}
+			_, _ = w.Write(glb)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	target, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := server.Client()
+	client.Transport = rewriteTransport{target: target, next: client.Transport}
+	generator, err := New(Options{Endpoint: "https://cloud.example/api", APIKey: "paid-partner-key", Client: client, PollInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := generator.Generate(context.Background(), modelgen.Request{Prompt: "clockwork fox", Seed: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(result.Data, glb) {
+		t.Fatal("Generate() returned the wrong GLB")
+	}
+}
+
+type rewriteTransport struct {
+	target *url.URL
+	next   http.RoundTripper
+}
+
+func (r rewriteTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	clone := request.Clone(request.Context())
+	clone.URL.Scheme = r.target.Scheme
+	clone.URL.Host = r.target.Host
+	clone.Host = r.target.Host
+	return r.next.RoundTrip(clone)
 }
 
 func TestRemoteEndpointRequiresHTTPSAndAPIKey(t *testing.T) {

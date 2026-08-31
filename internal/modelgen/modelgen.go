@@ -11,7 +11,10 @@ import (
 
 const MaxOutputBytes = 256 << 20
 
-var ErrInvalidRequest = errors.New("modelgen: invalid request")
+var (
+	ErrInvalidRequest = errors.New("modelgen: invalid request")
+	ErrUnavailable    = errors.New("modelgen: generator unavailable")
+)
 
 type Recipe struct {
 	ID      string `json:"id"`
