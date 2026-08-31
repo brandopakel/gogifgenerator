@@ -151,6 +151,15 @@ func TestAnimateReferenceCreatesMotionWithoutDiscardingSource(t *testing.T) {
 	}
 }
 
+func TestUnityOverlayIsRestrainedExceptForExplicitConfetti(t *testing.T) {
+	if got := unityOverlayOpacity("orbit"); got != 32 {
+		t.Fatalf("orbit opacity = %d, want 32", got)
+	}
+	if got := unityOverlayOpacity("confetti"); got != 255 {
+		t.Fatalf("confetti opacity = %d, want 255", got)
+	}
+}
+
 func TestNewRejectsDuplicateStageIDs(t *testing.T) {
 	stage := fakeStage{descriptor: StageDescriptor{ID: "same", Label: "Same", Role: "test"}}
 	if _, err := New(PipelineOptions{Stages: []Stage{stage, stage}, Encoder: fakeEncoder{}}); err == nil {

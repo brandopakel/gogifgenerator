@@ -253,7 +253,13 @@ func compositeSequences(manifest Manifest) error {
 			draw.Draw(composite, composite.Bounds(), animatedReference, animatedReference.Bounds().Min, draw.Src)
 			draw.DrawMask(composite, composite.Bounds(), beauty, beauty.Bounds().Min, image.NewUniform(color.Alpha{A: 96}), image.Point{}, draw.Over)
 		}
-		draw.Draw(composite, composite.Bounds(), overlay, overlay.Bounds().Min, draw.Over)
+		// Unity's bright procedural particles are an accent for realistic source
+		// imagery, not the subject. Keep them restrained unless the user chooses
+		// the explicit confetti motion.
+		draw.DrawMask(
+			composite, composite.Bounds(), overlay, overlay.Bounds().Min,
+			image.NewUniform(color.Alpha{A: unityOverlayOpacity(manifest.Motion)}), image.Point{}, draw.Over,
+		)
 		if manifest.ShowCaption {
 			render.CaptionImage(composite, manifest.Caption, index, manifest.Frames, "bottom")
 		}
@@ -269,6 +275,13 @@ func compositeSequences(manifest Manifest) error {
 		}
 	}
 	return nil
+}
+
+func unityOverlayOpacity(motion string) uint8 {
+	if motion == "confetti" {
+		return 255
+	}
+	return 32
 }
 
 // animateReference gives semantic source art a restrained 2.5D camera move.
