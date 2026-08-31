@@ -166,6 +166,19 @@ func TestCreateFineTuneToolbarAndBrandUseOneCanonicalMark(t *testing.T) {
 	if strings.Contains(page, "brand-mark") {
 		t.Fatal("legacy three-bar brand mark is still present")
 	}
+	styles, err := fs.ReadFile(Files(), "app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{
+		".create-controls > summary { min-height: 33px; display: flex; align-items: center; }",
+		"grid-template-columns: repeat(4, minmax(0, 1fr))",
+		"grid-template-columns: repeat(2, minmax(0, 1fr))",
+	} {
+		if !strings.Contains(string(styles), marker) {
+			t.Fatalf("app.css does not contain balanced create toolbar rule %q", marker)
+		}
+	}
 }
 
 func TestStylesRespectReducedMotionAndVisibleFocus(t *testing.T) {
