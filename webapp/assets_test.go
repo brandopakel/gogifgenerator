@@ -230,6 +230,24 @@ func TestCollectionCancelAndGlobalInteractionCursors(t *testing.T) {
 	}
 }
 
+func TestLibraryIsOnlyOpenedFromAccount(t *testing.T) {
+	index, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(index)
+	if strings.Contains(page, `id="library-tab"`) || strings.Contains(page, `data-mode="library"`) {
+		t.Fatal("Library remains exposed as a primary mode tab")
+	}
+	if !strings.Contains(page, `id="account-library-button"`) || !strings.Contains(string(script), "setMode('library')") {
+		t.Fatal("Account no longer provides the Library entry point")
+	}
+}
+
 func TestStylesRespectReducedMotionAndVisibleFocus(t *testing.T) {
 	data, err := fs.ReadFile(Files(), "app.css")
 	if err != nil {

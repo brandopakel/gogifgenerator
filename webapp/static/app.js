@@ -46,7 +46,6 @@ const elements = {
   signIn: document.querySelector('#sign-in-button'),
   account: document.querySelector('#account-button'),
   creditMeter: document.querySelector('#credit-meter'),
-  libraryTab: document.querySelector('#library-tab'),
   libraryPanel: document.querySelector('#library-panel'),
   libraryGrid: document.querySelector('#library-grid'),
   libraryMessage: document.querySelector('#library-message'),
@@ -187,7 +186,6 @@ function renderAccount() {
   const data = state.account;
   const enabled = Boolean(data?.enabled);
   elements.pricing.hidden = !enabled;
-  elements.libraryTab.hidden = !enabled;
   elements.signIn.hidden = true;
   elements.account.hidden = false;
   elements.logout.hidden = !enabled || !data.authenticated || data.auth_mode !== 'oidc';
