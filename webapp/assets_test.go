@@ -14,10 +14,31 @@ func TestEditorShellIncludesAccessibleMilestoneOneControls(t *testing.T) {
 	page := string(data)
 	for _, marker := range []string{
 		`id="copy-button"`, `id="undo-button"`, `id="redo-button"`, `id="save-draft-button"`,
-		`id="trim-start-control"`, `id="target-size-control"`, `id="search-scope"`, `<option value="stickers">Stickers</option>`, `role="slider"`, `aria-live="assertive"`,
+		`id="trim-start-control"`, `id="target-size-control"`, `id="search-scope"`, `<option value="stickers">Stickers</option>`, `<option value="clips">Clips</option>`, `role="slider"`, `aria-live="assertive"`,
 	} {
 		if !strings.Contains(page, marker) {
 			t.Fatalf("index.html does not contain %q", marker)
+		}
+	}
+}
+
+func TestYarnSearchIsLinkOnlyAndUsesTheGoProvider(t *testing.T) {
+	data, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	for _, marker := range []string{
+		"searchScope === 'clips'", "searchYarn(query, cursor)", "/api/v1/providers/yarn/search",
+		"YARN · OPENS PROVIDER · LINK ONLY", "externalOnly: true", "Search on Yarn",
+	} {
+		if !strings.Contains(script, marker) {
+			t.Fatalf("app.js does not contain %q", marker)
+		}
+	}
+	for _, forbidden := range []string{"y.yarn.co", "curl_cffi", "cloudflare"} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("browser Yarn integration contains unsupported media/scraping marker %q", forbidden)
 		}
 	}
 }

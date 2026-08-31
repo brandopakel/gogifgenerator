@@ -34,6 +34,7 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/provider/nasa"
 	"github.com/brandopakel/gogifgenerator/internal/provider/prelinger"
 	"github.com/brandopakel/gogifgenerator/internal/provider/wikimedia"
+	"github.com/brandopakel/gogifgenerator/internal/provider/yarn"
 	"github.com/brandopakel/gogifgenerator/internal/reference"
 	"github.com/brandopakel/gogifgenerator/internal/store"
 	"github.com/brandopakel/gogifgenerator/internal/video"
@@ -161,6 +162,7 @@ func main() {
 		provider.Cached{Next: cities, KV: catalog, TTL: 15 * time.Minute},
 		provider.Cached{Next: archive, KV: catalog, TTL: 15 * time.Minute},
 		provider.Cached{Next: nasaLibrary, KV: catalog, TTL: 15 * time.Minute},
+		provider.Cached{Next: yarn.Yarn{}, KV: catalog, TTL: 15 * time.Minute},
 	}
 	referenceFetcher, err := reference.New(reference.Options{})
 	if err != nil {

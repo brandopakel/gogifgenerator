@@ -23,7 +23,7 @@ The input and result surfaces are shared. GIF and 3D outputs remain distinct med
 | `internal/video` | Bounded short clip → request-scoped source frames | Optional local FFmpeg adapter with isolated temporary files and cleanup |
 | `internal/media` | Asset, rendition, provenance, and rights catalog | Validated JSON records persisted through the KV boundary |
 | `internal/store` | Metadata and binary persistence seams | MemKV RESP adapter, memory KV, content-addressed filesystem blobs |
-| `internal/provider` | Federated discovery and rights normalization | Clip-capable cached provider contract plus Wikimedia Commons, GifCities, Prelinger, and NASA adapters |
+| `internal/provider` | Federated discovery and rights normalization | Clip-capable cached provider contract plus Wikimedia Commons, GifCities, Prelinger, NASA, and link-only Yarn adapters |
 | `internal/subtitle` | Provider captions → local quote time range | Bounded WebVTT/SRT parser with exact and ASR-tolerant matching |
 | `internal/httpapi` | Public client contract | Standard-library HTTP server and embedded PWA |
 | `webapp` | Universal interaction surface | Responsive PWA with sectioned provider search |
@@ -52,7 +52,7 @@ Never send the OpenAI key to a client. In a multi-user deployment, add authentic
 
 ## Search
 
-Search is a federation problem, not a web-crawling problem. The Go API currently exposes Wikimedia Commons, GifCities, Prelinger, and NASA through normalized adapters, caches repeat queries for fifteen minutes, and links to provider-hosted media rather than mirroring it. GifCities and NASA results intentionally retain unknown commercial/derivative permissions because their search responses do not provide item-level rights clearance. Prelinger search returns metadata and posters only; selecting a preview revalidates the item and resolves stable Internet Archive video and caption renditions on demand. Each provider adapter must own:
+Search is a federation problem, not a web-crawling problem. The Go API currently exposes Wikimedia Commons, GifCities, Prelinger, and NASA through normalized adapters, caches repeat queries for fifteen minutes, and links to provider-hosted media rather than mirroring it. Yarn is a separate link-only adapter: it validates an exact clip UUID/URL or builds an official quote-search page without issuing a backend request, because Yarn has no supported public API and its current hosts require a browser challenge. GifCities and NASA results intentionally retain unknown commercial/derivative permissions because their search responses do not provide item-level rights clearance. Prelinger search returns metadata and posters only; selecting a preview revalidates the item and resolves stable Internet Archive video and caption renditions on demand. Each provider adapter must own:
 
 - terms and attribution compliance;
 - platform-specific credentials;

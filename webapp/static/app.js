@@ -1242,7 +1242,7 @@ function clearSearchResults() {
   elements.searchSentinel.textContent = '';
   elements.searchMessage.hidden = true;
   elements.searchMessage.textContent = '';
-  const emptyTitles = { gifs: 'Find a GIF', stickers: 'Find a sticker', source: 'Find source media' };
+  const emptyTitles = { gifs: 'Find a GIF', stickers: 'Find a sticker', clips: 'Find a movie or TV quote', source: 'Find source media' };
   elements.searchTitle.textContent = emptyTitles[elements.searchScope.value] || 'Find media';
 }
 
@@ -1278,11 +1278,17 @@ async function search(query) {
       ? apiKey
         ? [{ id: 'giphy-stickers', load: (cursor) => searchGiphy(query, apiKey, cursor, 'stickers') }]
         : []
-      : [
-        { id: 'wikimedia', load: (cursor) => searchWikimedia(query, cursor) },
-        { id: 'prelinger', load: (cursor) => searchPrelinger(query, cursor) },
-        { id: 'nasa', load: (cursor) => searchNASA(query, cursor) },
-      ];
+		: searchScope === 'clips'
+			? [
+				{ id: 'prelinger', load: (cursor) => searchPrelinger(query, cursor) },
+				{ id: 'nasa', load: (cursor) => searchNASAClips(query, cursor) },
+				{ id: 'yarn', load: (cursor) => searchYarn(query, cursor) },
+			]
+			: [
+				{ id: 'wikimedia', load: (cursor) => searchWikimedia(query, cursor) },
+				{ id: 'prelinger', load: (cursor) => searchPrelinger(query, cursor) },
+				{ id: 'nasa', load: (cursor) => searchNASA(query, cursor) },
+			];
   const session = {
     requestID, query, searchScope, loading: false, resultCount: 0,
     providers: loaders.map((loader) => ({ ...loader, cursor: '', done: false, seen: new Set() })),
@@ -1290,7 +1296,7 @@ async function search(query) {
   state.searchSession = session;
   elements.searchResults.replaceChildren();
   elements.searchMessage.hidden = false;
-  const searchingMessages = { gifs: 'Searching actual GIFs…', stickers: 'Searching stickers…', source: 'Searching source clips and images…' };
+  const searchingMessages = { gifs: 'Searching actual GIFs…', stickers: 'Searching stickers…', clips: 'Searching clips and preparing Yarn…', source: 'Searching source clips and images…' };
   elements.searchMessage.textContent = searchingMessages[searchScope] || 'Searching…';
   elements.searchTitle.textContent = `“${query}”`;
   elements.searchSentinel.hidden = true;
@@ -1488,6 +1494,40 @@ async function searchNASA(query, cursor = '') {
 	};
 }
 
+async function searchNASAClips(query, cursor = '') {
+	const result = await searchNASA(query, cursor);
+	result.items = result.items.filter((item) => item.kind === 'video' || item.kind === 'clip');
+	return result;
+}
+
+async function searchYarn(query, cursor = '') {
+	const url = new URL('/api/v1/providers/yarn/search', window.location.origin);
+	url.search = new URLSearchParams({ q: query, limit: '1', locale: 'en' });
+	if (cursor) url.searchParams.set('cursor', cursor);
+	const response = await fetch(url);
+	const payload = await response.json().catch(() => ({}));
+	if (!response.ok) throw new Error(payload.error?.message || 'Yarn link search failed.');
+	return {
+		id: 'yarn',
+		label: 'Yarn movie & TV clips',
+		credit: 'YARN · OPENS PROVIDER · LINK ONLY',
+		cursor: '',
+		items: payload.results.map((item) => ({
+			provider: item.provider,
+			externalID: item.external_id,
+			kind: item.kind,
+			href: item.source_url,
+			title: item.title || query,
+			note: item.description,
+			actionLabel: item.external_id.startsWith('search-') ? 'Search on Yarn' : 'Open on Yarn',
+			externalOnly: true,
+			allowedHandling: item.allowed_handling,
+			transformPolicy: item.transform_policy,
+			derivatives: item.derivatives,
+		})),
+	};
+}
+
 async function searchGiphy(query, apiKey, cursor = '', contentType = 'gifs') {
 	const stickers = contentType === 'stickers';
 	const url = new URL(`https://api.giphy.com/v1/${stickers ? 'stickers' : 'gifs'}/search`);
@@ -1560,14 +1600,34 @@ function searchCard(item) {
 		if (imageSourceIndex < imageSources.length) image.src = imageSources[imageSourceIndex];
 		else image.classList.add('failed');
 	});
-	image.src = imageSources[0] || '';
-	if (item.kind === 'gif' || item.kind === 'sticker') image.setAttribute('aria-label', `${item.title}. Animated ${item.kind}; touch and hold to copy.`);
-	media.append(image);
+	if (imageSources.length) {
+		image.src = imageSources[0];
+		if (item.kind === 'gif' || item.kind === 'sticker') image.setAttribute('aria-label', `${item.title}. Animated ${item.kind}; touch and hold to copy.`);
+		media.append(image);
+	} else {
+		media.classList.add('external-only');
+		const providerMark = document.createElement('span');
+		providerMark.className = 'provider-mark';
+		providerMark.textContent = item.provider === 'yarn' ? 'YARN' : 'SOURCE';
+		media.append(providerMark);
+	}
 	card.append(media);
 	const details = document.createElement('div');
 	details.className = 'search-card-details';
 	const links = document.createElement('div');
 	links.className = 'search-card-links';
+	if (item.externalOnly) {
+		const title = document.createElement('strong');
+		title.className = 'external-result-title';
+		title.textContent = item.title;
+		details.append(title);
+		if (item.note) {
+			const note = document.createElement('span');
+			note.className = 'external-result-note';
+			note.textContent = item.note;
+			details.append(note);
+		}
+	}
 	if ((item.kind === 'gif' || item.kind === 'sticker') && (item.mediaURL || item.preview)) {
 		const openGIF = document.createElement('a');
 		openGIF.href = item.mediaURL || item.preview;
@@ -1581,7 +1641,7 @@ function searchCard(item) {
 		source.href = item.href;
 		source.target = '_blank';
 		source.rel = 'noreferrer';
-		source.textContent = 'Source';
+		source.textContent = item.actionLabel || 'Source';
 		links.append(source);
 	}
 	if (links.childElementCount) details.append(links);
