@@ -69,6 +69,7 @@ func TestSecurityPolicyAllowsConfiguredCatalogMedia(t *testing.T) {
 	policy := response.Header().Get("Content-Security-Policy")
 	for _, host := range []string{
 		"https://upload.wikimedia.org", "https://blob.gifcities.org", "https://archive.org", "https://*.archive.org", "https://images-assets.nasa.gov",
+		"https://y.yarn.co", "frame-src https://getyarn.io",
 	} {
 		if !strings.Contains(policy, host) {
 			t.Fatalf("Content-Security-Policy does not allow %s: %q", host, policy)

@@ -10,7 +10,8 @@
 - Prelinger film search and on-demand provider-hosted video previews
 - Local selected-item WebVTT/SRT quote matching and timed preview
 - NASA image/video search with conservative usage-policy metadata
-- First-class Clips search across Prelinger/NASA plus a native Go, link-only Yarn handoff (implemented; Yarn in-app media access requires a supported agreement/API)
+- First-class Clips search across Prelinger/NASA plus an experimental native-Go Yarn metadata scraper with official click-to-load embeds (implemented; live Yarn search currently fails closed on its browser challenge)
+- Quote-first clip cards, bounded lazy metadata hydration, related-result history, and provider-aware continuous pagination (implemented)
 - Optional GIPHY search path
 - Provider-aware continuous search loading on desktop and mobile
 - Dedicated GIPHY sticker search with transparent-media results kept separate from GIF and source-media feeds
@@ -48,9 +49,9 @@ Exit condition: evaluated AI plans outperform curated deterministic templates on
 ## Milestone 3 — discovery and libraries
 
 - Provider abstraction with normalized ranking, pagination, ratings, and attribution
-- Quote-first clip cards with title/episode, transcript line, duration, poster, and source rights metadata
-- Continuously paginated related-clip graph: selecting a clip becomes the next semantic/metadata seed without discarding prior navigation history
-- Approved broad clip catalog integration through a Yarn partnership, GIPHY Clips approval, Clip.Cafe with written commercial/content permission, or another licensed API; never substitute protected-page scraping for a provider contract
+- Quote-first clip cards with title/episode, transcript line, duration, poster, and source rights metadata (implemented; catalog metadata varies)
+- Continuously paginated related-clip graph: selecting a clip becomes the next semantic/metadata seed without discarding prior navigation history (implemented)
+- Approved broad clip catalog integration through a Yarn partnership, GIPHY Clips approval, Clip.Cafe with written commercial/content permission, or another licensed API; the experimental Yarn parser must never solve browser challenges or substitute for a production provider contract
 - Generated/private GIF library with tags and semantic search
 - Favorites, recents, collections, and cross-device sync
 - Provider share/view analytics

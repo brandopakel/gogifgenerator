@@ -2,7 +2,7 @@
 
 **One prompt. The right GIF—made or found.**
 
-GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at home in a browser, an installed phone/desktop PWA, and a browser extension. The current repository is a working vertical slice: enter an idea, receive a real animated GIF, download it, search Wikimedia Commons, GifCities, the Prelinger Archives, and NASA's media library, or hand a movie/TV quote search off to Yarn without an account or API key.
+GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at home in a browser, an installed phone/desktop PWA, and a browser extension. The current repository is a working vertical slice: enter an idea, receive a real animated GIF, download it, or search Wikimedia Commons, GifCities, the Prelinger Archives, NASA's media library, and an experimental Yarn movie/TV metadata connector without pasting clip URLs.
 
 ## What works now
 
@@ -22,7 +22,8 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Free Prelinger archival-film search with item-specific license normalization and on-demand, provider-hosted video previews
 - Local WebVTT/SRT quote matching that jumps a selected Prelinger preview to the matching timecode
 - Free NASA image/video search with provider-hosted playback and conservative media-usage restrictions
-- First-class Clips search across reusable archives plus a link-only Yarn movie/TV quote handoff through a native Go provider; no Yarn scraping, downloading, hotlinking, or rehosting
+- First-class Clips search with quote-first cards, continuous provider pagination, and related-result navigation across reusable archives
+- Experimental native-Go Yarn HTML metadata scraper driven by the same phrase input; results use provider-hosted posters and official click-to-load embeds, never inferred CDN downloads, proxying, transformation, or rehosting
 - Private photo, existing-GIF, and optional FFmpeg-backed short-video editor with trim, direct crop/caption manipulation, zoom, timing, and loop controls
 - Undo/redo plus explicit IndexedDB drafts that keep source media and settings in the current browser
 - Messages/Discord/Slack export presets, bounded size optimization, animation-quality controls, native GIF copy where supported, PNG-frame/link fallbacks elsewhere, download, and native file sharing
@@ -132,7 +133,7 @@ Checkout and subscription metadata carry the immutable GoGIF user/plan IDs; the 
 | Go renderer, Blender, local ComfyUI, Unity/Unreal batch workers, MemKV | No API key | Runs on hardware you own; editor licenses and terms still apply |
 | Local short-video trim with FFmpeg | No | Optional executable on the GoGIF server; source and decoded frames are request-scoped |
 | Wikimedia Commons, GifCities, Prelinger, and NASA search | No | Source media remains provider-hosted; normal bandwidth only |
-| Yarn movie/TV quote search | No | Link-only handoff to Yarn; GoGIF does not fetch or store Yarn media |
+| Yarn movie/TV quote metadata | No | Experimental bounded HTML parser; currently unavailable whenever Yarn returns its Cloudflare challenge. Official embeds only; GoGIF does not fetch or store Yarn media. |
 | Public ungated model checkpoint | Usually no | License and hardware requirements are model-specific |
 | GIPHY search | Yes, `GIPHY_API_KEY` | Optional provider integration |
 | OpenAI art-direction planner | Yes, `OPENAI_API_KEY` plus `GOGIF_ENABLE_PAID_AI=true` | Paid opt-in; never part of zero-spend mode |
@@ -236,7 +237,7 @@ The GIF bytes go to content-addressed blob storage; MemKV holds the searchable r
 | `GET` | `/api/v1/providers/gifcities/search?q=...` | Search GifCities and return source-linked archived GIFs |
 | `GET` | `/api/v1/providers/prelinger/search?q=...` | Search Prelinger archival films without downloading video |
 | `GET` | `/api/v1/providers/nasa/search?q=...` | Search NASA's image/video library without downloading media |
-| `GET` | `/api/v1/providers/yarn/search?q=...` | Construct an official, link-only Yarn quote search or validate an exact Yarn clip URL/ID |
+| `GET` | `/api/v1/providers/yarn/search?q=...&cursor=page%3D2` | Parse bounded public Yarn result metadata for a phrase and return official clip/embed URLs; fails closed on a browser challenge |
 | `GET` | `/api/v1/providers/{provider}/items/{id}` | Revalidate an item and resolve its current renditions/captions |
 | `GET` | `/api/v1/providers/{provider}/items/{id}/quote?q=...` | Match a quote against selected-item captions and return its time range |
 | `GET` | `/api/v1/gifs/{id}` | Serve an original GoGIF asset; zero-config links last for the server session and MemKV keeps records across restarts |
@@ -265,7 +266,7 @@ phone / desktop PWA ─┐
 browser extension ───┼──> Go HTTP API on the Mac ──┬─> Comfy Cloud FLUX ──> Go animation/GIF
 web browser ─────────┘                              ├─> Studio Local: Blender → Unity → Unreal → FFmpeg
                                                    ├─> Comfy Cloud Tripo/Hunyuan ──> validated GLB
-                                                   └─> provider adapters ──> Wikimedia / GifCities / Prelinger / NASA / Yarn links
+                                                   └─> provider adapters ──> Wikimedia / GifCities / Prelinger / NASA / Yarn metadata
 ```
 
 The planner speaks a small, validated animation-spec contract. That keeps model vendors, renderers, and future native clients replaceable. The OpenAI adapter uses the Responses API with Structured Outputs, following the [official OpenAI API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).
@@ -295,7 +296,9 @@ This formats Go code, runs `go vet`, then runs the full test suite with the race
 
 No service can truthfully or lawfully search “every GIF on the internet.” GoGIF will provide federated search across licensed providers, a user's private library, and the app's own generated catalog. Tenor is not a viable new integration because Google stopped accepting new API clients in January 2026; the provider boundary remains open so additional licensed sources can be evaluated without rewriting the product.
 
-Yarn is intentionally different from the API-backed providers. The older [getgetyarnio Bash project](https://github.com/cbrochtrup/getgetyarnio) scrapes search HTML and derives CDN filenames, while the supplied [Python gist](https://gist.github.com/lambdan/5c6c49b88f9d5ed72ccc955e879bf402) scrapes site pages and downloads clips. Those techniques are not the GoGIF integration: as reviewed on 2026-08-30, GetYarn exposes no supported public developer API, and both search and direct media requests receive a Cloudflare browser challenge. The Go adapter is an independent, network-free URL builder/validator that opens the official provider page. A true in-app Yarn result grid, related-clip graph, preview, download, or clip-to-GIF workflow requires a written API/content agreement with Yarn (or another licensed clip API); a scraper repository's software license does not grant rights to its underlying movie and television footage.
+Yarn is intentionally different from the API-backed providers. The older [getgetyarnio Bash project](https://github.com/cbrochtrup/getgetyarnio) scrapes search HTML and derives CDN filenames, while the supplied [Python gist](https://gist.github.com/lambdan/5c6c49b88f9d5ed72ccc955e879bf402) scrapes site pages and downloads clips. GoGIF now implements only the bounded metadata-search portion independently in Go: it requests public phrase-result HTML, parses clip IDs, quotes, titles, posters, duration, and pagination, then constructs Yarn's documented-by-its-UI official embed URL. It does not derive `y.yarn.co` MP4 filenames, download movie bytes, forward cookies, solve challenges, proxy, transform, or rehost clips.
+
+As reviewed on 2026-08-30, GetYarn exposes no supported public developer API and its live search endpoint returns a Cloudflare browser challenge to this backend. The adapter therefore fails closed with `provider: unavailable` when challenged; it does not silently turn a phrase into an outbound search-link card. The parser is fully covered by fixture tests and will work only while Yarn serves compatible public HTML to the server. Dependable production search, downloads, paid-product use, or clip-to-GIF transformation still requires a written Yarn API/content agreement or another licensed clip API. A scraper repository's software license does not grant rights to the underlying movie and television footage.
 
 ## Project status
 

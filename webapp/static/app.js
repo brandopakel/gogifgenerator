@@ -34,6 +34,7 @@ const elements = {
   searchMessage: document.querySelector('#search-message'),
   searchResults: document.querySelector('#search-results'),
   searchSentinel: document.querySelector('#search-sentinel'),
+	clipTrail: document.querySelector('#clip-trail'),
   searchOptions: document.querySelector('#search-options'),
   searchScope: document.querySelector('#search-scope'),
 	modelOptions: document.querySelector('#model-options'),
@@ -92,7 +93,7 @@ const state = {
   mode: 'create', config: null, objectURL: '', resultURL: '', uploadPreviewURL: '', resultBlob: null, resultKind: '',
   uploadFile: null, seed: 0, installPrompt: null, reference: null, uploadIsVideo: false,
   history: [], historyIndex: -1, applyingHistory: false, currentDraftID: '', drag: null,
-  searchRequestID: 0, searchSession: null,
+  searchRequestID: 0, searchSession: null, clipTrail: [],
   account: null, plans: [], usage: null, libraryItems: [], libraryCursor: '', collections: [], selectedCollection: '',
 };
 
@@ -100,6 +101,18 @@ const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)
 const editorControlKeys = ['captionPosition', 'motion', 'cropX', 'cropY', 'zoom', 'trimStart', 'trimEnd', 'loop', 'size', 'tempo', 'quality', 'targetSize'];
 let searchTimer;
 let searchContinuationTimer;
+const clipDetailCache = new Map();
+const clipHydrationQueue = [];
+const clipHydrationTargets = new WeakMap();
+let clipHydrationActive = 0;
+const clipCardObserver = new IntersectionObserver((entries) => {
+	for (const entry of entries) {
+		if (!entry.isIntersecting) continue;
+		clipCardObserver.unobserve(entry.target);
+		const target = clipHydrationTargets.get(entry.target);
+		if (target) enqueueClipHydration(target);
+	}
+}, { rootMargin: '320px 0px' });
 
 async function loadConfig() {
   try {
@@ -1237,6 +1250,8 @@ function clearSearchResults() {
   searchContinuationTimer = 0;
   state.searchRequestID += 1;
   state.searchSession = null;
+	state.clipTrail = [];
+	renderClipTrail();
   elements.searchResults.replaceChildren();
   elements.searchSentinel.hidden = true;
   elements.searchSentinel.textContent = '';
@@ -1258,7 +1273,7 @@ function queueSearch() {
   searchTimer = setTimeout(() => search(query), 350);
 }
 
-async function search(query) {
+async function search(query, options = {}) {
   clearTimeout(searchTimer);
   clearTimeout(searchContinuationTimer);
   searchContinuationTimer = 0;
@@ -1269,6 +1284,12 @@ async function search(query) {
   }
   const requestID = ++state.searchRequestID;
   const searchScope = elements.searchScope.value;
+	if (searchScope === 'clips') {
+		if (!options.preserveClipTrail) state.clipTrail = [{ query, label: query }];
+	} else {
+		state.clipTrail = [];
+	}
+	renderClipTrail();
   const apiKey = state.config?.giphy_api_key;
   const loaders = searchScope === 'gifs'
     ? apiKey
@@ -1336,7 +1357,11 @@ async function loadMoreSearchResults(session = state.searchSession) {
   for (const [index, outcome] of settled.entries()) {
     const provider = activeProviders[index];
     if (outcome.status === 'rejected') {
-      failures.push(outcome.reason.message);
+			const message = provider.id === 'yarn'
+				? 'Yarn phrase results are unavailable because Yarn requested browser verification. Other clip sources remain available.'
+				: outcome.reason.message;
+			failures.push(message);
+			renderProviderFailure(provider, message);
       provider.done = true;
       continue;
     }
@@ -1364,6 +1389,18 @@ async function loadMoreSearchResults(session = state.searchSession) {
   updateSearchSentinel(session);
 }
 
+function renderProviderFailure(provider, message) {
+	const selector = `[data-provider-status="${provider.id}"]`;
+	let status = elements.searchResults.querySelector(selector);
+	if (!status) {
+		status = document.createElement('p');
+		status.className = 'provider-status';
+		status.dataset.providerStatus = provider.id;
+		elements.searchResults.append(status);
+	}
+	status.textContent = message;
+}
+
 function updateSearchSentinel(session) {
   const hasMore = session.providers.some((provider) => !provider.done);
   elements.searchSentinel.hidden = session.resultCount === 0;
@@ -1379,6 +1416,125 @@ function scheduleSearchContinuation(session = state.searchSession) {
     const bounds = elements.searchSentinel.getBoundingClientRect();
     if (!elements.searchSentinel.hidden && bounds.top <= window.innerHeight + 700) loadMoreSearchResults(session);
   }, 0);
+}
+
+function renderClipTrail() {
+	elements.clipTrail.replaceChildren();
+	elements.clipTrail.hidden = elements.searchScope.value !== 'clips' || state.clipTrail.length < 2;
+	for (const [index, seed] of state.clipTrail.entries()) {
+		if (index) {
+			const separator = document.createElement('span');
+			separator.className = 'clip-trail-separator';
+			separator.textContent = '›';
+			separator.setAttribute('aria-hidden', 'true');
+			elements.clipTrail.append(separator);
+		}
+		const button = document.createElement('button');
+		button.type = 'button';
+		button.textContent = seed.label;
+		button.title = seed.label;
+		if (index === state.clipTrail.length - 1) button.setAttribute('aria-current', 'page');
+		button.addEventListener('click', () => openClipTrailSeed(index));
+		elements.clipTrail.append(button);
+	}
+}
+
+function openClipTrailSeed(index) {
+	const seed = state.clipTrail[index];
+	if (!seed) return;
+	state.clipTrail = state.clipTrail.slice(0, index + 1);
+	elements.prompt.value = seed.query;
+	renderClipTrail();
+	search(seed.query, { preserveClipTrail: true });
+}
+
+function exploreRelatedClips(item) {
+	const seedQuery = relatedQueryForItem(item);
+	if (!seedQuery) {
+		showToast('This source did not provide enough metadata for related clips.');
+		return;
+	}
+	if (!state.clipTrail.length && state.searchSession?.query) {
+		state.clipTrail = [{ query: state.searchSession.query, label: state.searchSession.query }];
+	}
+	state.clipTrail.push({ query: seedQuery, label: item.title || seedQuery });
+	if (state.clipTrail.length > 12) state.clipTrail.splice(1, state.clipTrail.length - 12);
+	elements.prompt.value = seedQuery;
+	renderClipTrail();
+	search(seedQuery, { preserveClipTrail: true });
+}
+
+function relatedQueryForItem(item) {
+	const current = state.searchSession?.query?.trim().toLowerCase() || '';
+	const quote = item.resolved?.quote_match?.text?.trim() || item.description?.trim() || '';
+	if (quote && quote.toLowerCase() !== current) return quote;
+	const author = item.author?.trim() || '';
+	if (author && !/^(nasa|unknown)$/i.test(author)) return author;
+	return item.title?.replace(/\s*\([^)]*\)\s*$/, '').trim() || '';
+}
+
+function observeClipDetails(item, card, quote, duration) {
+	if (!['prelinger', 'nasa'].includes(item.provider) || !item.allowedHandling?.includes('display')) return;
+	clipHydrationTargets.set(card, { item, quote, duration });
+	clipCardObserver.observe(card);
+}
+
+function enqueueClipHydration(target) {
+	clipHydrationQueue.push(target);
+	drainClipHydrationQueue();
+}
+
+function drainClipHydrationQueue() {
+	while (clipHydrationActive < 3 && clipHydrationQueue.length) {
+		const target = clipHydrationQueue.shift();
+		clipHydrationActive += 1;
+		hydrateClipCard(target).finally(() => {
+			clipHydrationActive -= 1;
+			drainClipHydrationQueue();
+		});
+	}
+}
+
+async function resolveClipItem(item) {
+	if (item.resolved) return item.resolved;
+	const cacheKey = `${item.provider}:${item.externalID}:${item.query || ''}`;
+	if (!clipDetailCache.has(cacheKey)) {
+		const pending = (async () => {
+			const itemPath = `/api/v1/providers/${encodeURIComponent(item.provider)}/items/${encodeURIComponent(item.externalID)}`;
+			const url = new URL(item.query ? `${itemPath}/quote` : itemPath, window.location.origin);
+			url.searchParams.set('locale', 'en');
+			if (item.query) url.searchParams.set('q', item.query);
+			const response = await fetch(url);
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(payload.error?.message || 'Could not load this clip.');
+			return payload;
+		})();
+		clipDetailCache.set(cacheKey, pending);
+		pending.catch(() => clipDetailCache.delete(cacheKey));
+	}
+	item.resolved = await clipDetailCache.get(cacheKey);
+	return item.resolved;
+}
+
+async function hydrateClipCard({ item, quote, duration }) {
+	try {
+		const payload = await resolveClipItem(item);
+		if (payload.duration_ms) {
+			duration.textContent = formatTimecode(payload.duration_ms);
+			duration.hidden = false;
+		}
+		if (payload.quote_match) {
+			const match = payload.quote_match;
+			quote.textContent = `“${match.text}” · ${formatTimecode(match.start_ms || 0)}`;
+			quote.dataset.quote = match.text;
+		} else if (item.description) {
+			quote.textContent = item.description;
+		} else {
+			quote.textContent = 'No timed transcript was supplied by this source.';
+		}
+	} catch {
+		quote.textContent = item.description || 'Clip details are temporarily unavailable.';
+	}
 }
 
 async function searchWikimedia(query, cursor = '') {
@@ -1457,7 +1613,10 @@ async function searchPrelinger(query, cursor = '') {
 			preview: item.preview_url,
 			mediaURL: item.original_url || item.preview_url,
 			title: item.title || query,
+			description: item.description || '',
 			query,
+			author: item.author || '',
+			durationMS: item.duration_ms || 0,
 			note: [item.author, item.license_name || 'Check item rights'].filter(Boolean).join(' · '),
 			allowedHandling: item.allowed_handling,
 			transformPolicy: item.transform_policy,
@@ -1486,6 +1645,9 @@ async function searchNASA(query, cursor = '') {
 			preview: item.preview_url,
 			mediaURL: item.original_url || item.preview_url,
 			title: item.title || query,
+			description: item.description || '',
+			author: item.author || '',
+			durationMS: item.duration_ms || 0,
 			note: [item.author, 'Review third-party, logo, and likeness restrictions'].filter(Boolean).join(' · '),
 			allowedHandling: item.allowed_handling,
 			transformPolicy: item.transform_policy,
@@ -1502,25 +1664,31 @@ async function searchNASAClips(query, cursor = '') {
 
 async function searchYarn(query, cursor = '') {
 	const url = new URL('/api/v1/providers/yarn/search', window.location.origin);
-	url.search = new URLSearchParams({ q: query, limit: '1', locale: 'en' });
+	url.search = new URLSearchParams({ q: query, limit: '24', locale: 'en' });
 	if (cursor) url.searchParams.set('cursor', cursor);
 	const response = await fetch(url);
 	const payload = await response.json().catch(() => ({}));
-	if (!response.ok) throw new Error(payload.error?.message || 'Yarn link search failed.');
+	if (!response.ok) throw new Error(payload.error?.message || 'Yarn phrase search failed.');
 	return {
 		id: 'yarn',
 		label: 'Yarn movie & TV clips',
-		credit: 'YARN · OPENS PROVIDER · LINK ONLY',
-		cursor: '',
+		credit: 'YARN · OFFICIAL EMBEDS',
+		cursor: payload.cursor || '',
 		items: payload.results.map((item) => ({
 			provider: item.provider,
 			externalID: item.external_id,
 			kind: item.kind,
 			href: item.source_url,
+			embedURL: item.embed_url || '',
+			preview: item.preview_url || '',
 			title: item.title || query,
-			note: item.description,
-			actionLabel: item.external_id.startsWith('search-') ? 'Search on Yarn' : 'Open on Yarn',
-			externalOnly: true,
+			description: item.description || item.quote_match?.text || '',
+			query,
+			author: item.author || '',
+			durationMS: item.duration_ms || 0,
+			note: item.attribution || item.author || 'Yarn',
+			actionLabel: 'Open on Yarn',
+			externalOnly: false,
 			allowedHandling: item.allowed_handling,
 			transformPolicy: item.transform_policy,
 			derivatives: item.derivatives,
@@ -1587,6 +1755,7 @@ function renderProvider(result) {
 function searchCard(item) {
 	const card = document.createElement('article');
 	card.className = 'search-card';
+	const isClip = item.kind === 'video' || item.kind === 'clip';
 	const media = document.createElement('div');
 	media.className = 'search-card-media';
 	const image = document.createElement('img');
@@ -1616,16 +1785,32 @@ function searchCard(item) {
 	details.className = 'search-card-details';
 	const links = document.createElement('div');
 	links.className = 'search-card-links';
-	if (item.externalOnly) {
+	let quote;
+	let duration;
+	if (isClip || item.externalOnly) {
 		const title = document.createElement('strong');
-		title.className = 'external-result-title';
+		title.className = isClip ? 'clip-card-title' : 'external-result-title';
 		title.textContent = item.title;
 		details.append(title);
 		if (item.note) {
 			const note = document.createElement('span');
-			note.className = 'external-result-note';
+			note.className = isClip ? 'clip-card-meta' : 'external-result-note';
 			note.textContent = item.note;
 			details.append(note);
+		}
+		if (isClip && !item.externalOnly) {
+			quote = document.createElement('span');
+			quote.className = 'clip-card-quote';
+			quote.textContent = item.description
+				? `“${item.description}”`
+				: item.query ? 'Finding the closest timed quote…' : 'Loading clip details…';
+			details.append(quote);
+			duration = document.createElement('span');
+			duration.className = 'clip-duration';
+			duration.hidden = !item.durationMS;
+			duration.textContent = item.durationMS ? formatTimecode(item.durationMS) : '';
+			media.append(duration);
+			observeClipDetails(item, card, quote, duration);
 		}
 	}
 	if ((item.kind === 'gif' || item.kind === 'sticker') && (item.mediaURL || item.preview)) {
@@ -1650,9 +1835,20 @@ function searchCard(item) {
 		const preview = document.createElement('button');
 		preview.className = 'preview-button';
 		preview.type = 'button';
-		preview.textContent = 'Load video preview';
-		preview.addEventListener('click', () => toggleVideoPreview(item, card, media, image, preview));
+		preview.textContent = 'Play clip';
+		preview.addEventListener('click', () => {
+			if (item.embedURL) toggleEmbeddedClip(item, media, preview);
+			else toggleVideoPreview(item, card, media, image, preview, quote);
+		});
 		card.append(preview);
+		if (elements.searchScope.value === 'clips') {
+			const related = document.createElement('button');
+			related.className = 'related-button';
+			related.type = 'button';
+			related.textContent = 'Related clips';
+			related.addEventListener('click', () => exploreRelatedClips(item));
+			card.append(related);
+		}
 	}
 	const canRemix = (state.config?.image_generator?.supports_references
 		|| (state.config?.quality_pipeline?.enabled && state.config?.quality_pipeline?.supports_references))
@@ -1671,7 +1867,31 @@ function searchCard(item) {
 	return card;
 }
 
-async function toggleVideoPreview(item, card, media, image, button) {
+function toggleEmbeddedClip(item, media, button) {
+	let frame = media.querySelector('iframe');
+	const placeholders = () => [...media.children].filter((child) => child !== frame);
+	if (frame) {
+		const show = frame.hidden;
+		frame.hidden = !show;
+		for (const child of placeholders()) child.hidden = show;
+		media.classList.toggle('has-embed', show);
+		button.textContent = show ? 'Hide clip' : 'Play clip';
+		return;
+	}
+	frame = document.createElement('iframe');
+	frame.src = item.embedURL;
+	frame.title = `${item.title} on Yarn`;
+	frame.loading = 'lazy';
+	frame.referrerPolicy = 'strict-origin-when-cross-origin';
+	frame.allow = 'fullscreen';
+	frame.setAttribute('allowfullscreen', '');
+	for (const child of placeholders()) child.hidden = true;
+	media.classList.add('has-embed');
+	media.append(frame);
+	button.textContent = 'Hide clip';
+}
+
+async function toggleVideoPreview(item, card, media, image, button, quoteElement) {
 	const existing = card.querySelector('video');
 	if (existing) {
 		existing.hidden = !existing.hidden;
@@ -1683,13 +1903,7 @@ async function toggleVideoPreview(item, card, media, image, button) {
 	button.disabled = true;
 	button.textContent = 'Loading preview…';
 	try {
-		const itemPath = `/api/v1/providers/${encodeURIComponent(item.provider)}/items/${encodeURIComponent(item.externalID)}`;
-		const url = new URL(item.query ? `${itemPath}/quote` : itemPath, window.location.origin);
-		url.searchParams.set('locale', 'en');
-		if (item.query) url.searchParams.set('q', item.query);
-		const response = await fetch(url);
-		const payload = await response.json().catch(() => ({}));
-		if (!response.ok) throw new Error(payload.error?.message || 'Could not load this video preview.');
+		const payload = await resolveClipItem(item);
 		const rendition = payload.renditions?.find((candidate) => candidate.content_type === 'video/mp4') || payload.renditions?.[0];
 		if (!rendition?.url) throw new Error('This item has no browser-compatible video rendition.');
 		const video = document.createElement('video');
@@ -1711,10 +1925,7 @@ async function toggleVideoPreview(item, card, media, image, button) {
 					stopAtMatchEnd = false;
 				}
 			});
-			const quote = document.createElement('span');
-			quote.className = 'quote-match';
-			quote.textContent = `${match.exact ? 'Exact quote' : 'Closest quote'} · ${formatTimecode(startMS)} · “${match.text}”`;
-			card.insertBefore(quote, button);
+			if (quoteElement) quoteElement.textContent = `“${match.text}” · ${formatTimecode(startMS)}`;
 		}
 		media.append(video);
 		image.hidden = true;

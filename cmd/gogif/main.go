@@ -157,12 +157,17 @@ func main() {
 		logger.Error("configure NASA Image and Video Library", "error", err)
 		os.Exit(1)
 	}
+	yarnClips, err := yarn.New(yarn.Options{})
+	if err != nil {
+		logger.Error("configure Yarn clip search", "error", err)
+		os.Exit(1)
+	}
 	mediaProviders := []provider.Provider{
 		provider.Cached{Next: commons, KV: catalog, TTL: 15 * time.Minute},
 		provider.Cached{Next: cities, KV: catalog, TTL: 15 * time.Minute},
 		provider.Cached{Next: archive, KV: catalog, TTL: 15 * time.Minute},
 		provider.Cached{Next: nasaLibrary, KV: catalog, TTL: 15 * time.Minute},
-		provider.Cached{Next: yarn.Yarn{}, KV: catalog, TTL: 15 * time.Minute},
+		provider.Cached{Next: yarnClips, KV: catalog, TTL: 15 * time.Minute},
 	}
 	referenceFetcher, err := reference.New(reference.Options{})
 	if err != nil {

@@ -117,6 +117,7 @@ type Result struct {
 	SourceURL       string           `json:"source_url"`
 	PreviewURL      string           `json:"preview_url"`
 	OriginalURL     string           `json:"original_url"`
+	EmbedURL        string           `json:"embed_url,omitempty"`
 	ReferenceURL    string           `json:"reference_url,omitempty"`
 	ContentType     string           `json:"content_type"`
 	Width           int              `json:"width,omitempty"`

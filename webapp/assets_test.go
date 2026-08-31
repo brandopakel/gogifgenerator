@@ -22,7 +22,7 @@ func TestEditorShellIncludesAccessibleMilestoneOneControls(t *testing.T) {
 	}
 }
 
-func TestYarnSearchIsLinkOnlyAndUsesTheGoProvider(t *testing.T) {
+func TestYarnPhraseSearchUsesTheGoScraperAndOfficialEmbeds(t *testing.T) {
 	data, err := fs.ReadFile(Files(), "app.js")
 	if err != nil {
 		t.Fatal(err)
@@ -30,15 +30,39 @@ func TestYarnSearchIsLinkOnlyAndUsesTheGoProvider(t *testing.T) {
 	script := string(data)
 	for _, marker := range []string{
 		"searchScope === 'clips'", "searchYarn(query, cursor)", "/api/v1/providers/yarn/search",
-		"YARN · OPENS PROVIDER · LINK ONLY", "externalOnly: true", "Search on Yarn",
+		"YARN · OFFICIAL EMBEDS", "description: item.description", "toggleEmbeddedClip(item, media, preview)",
+		"frame.src = item.embedURL", "frame.loading = 'lazy'", "frame.allow = 'fullscreen'", "Yarn phrase results are unavailable",
 	} {
 		if !strings.Contains(script, marker) {
 			t.Fatalf("app.js does not contain %q", marker)
 		}
 	}
-	for _, forbidden := range []string{"y.yarn.co", "curl_cffi", "cloudflare"} {
+	for _, forbidden := range []string{"y.yarn.co", "curl_cffi", "cloudflare", "Search on Yarn"} {
 		if strings.Contains(script, forbidden) {
 			t.Fatalf("browser Yarn integration contains unsupported media/scraping marker %q", forbidden)
+		}
+	}
+}
+
+func TestClipCardsHydrateQuotesAndNavigateRelatedResults(t *testing.T) {
+	index, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(index), `id="clip-trail"`) {
+		t.Fatal("index.html does not expose the related clip path")
+	}
+	for _, marker := range []string{
+		"Finding the closest timed quote", "resolveClipItem(item)", "hydrateClipCard", "payload.quote_match",
+		"Related clips", "exploreRelatedClips(item)", "state.clipTrail", "preserveClipTrail: true",
+		"clipCardObserver", "clipHydrationActive < 3", "loadMoreSearchResults",
+	} {
+		if !strings.Contains(string(script), marker) {
+			t.Fatalf("app.js does not contain %q", marker)
 		}
 	}
 }
