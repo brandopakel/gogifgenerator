@@ -1361,7 +1361,6 @@ async function loadMoreSearchResults(session = state.searchSession) {
 				? 'Yarn phrase results are unavailable because Yarn requested browser verification. Other clip sources remain available.'
 				: outcome.reason.message;
 			failures.push(message);
-			renderProviderFailure(provider, message);
       provider.done = true;
       continue;
     }
@@ -1387,18 +1386,6 @@ async function loadMoreSearchResults(session = state.searchSession) {
     elements.searchMessage.textContent = failures[0] || 'No matches yet. Try a broader feeling, action, or subject.';
   }
   updateSearchSentinel(session);
-}
-
-function renderProviderFailure(provider, message) {
-	const selector = `[data-provider-status="${provider.id}"]`;
-	let status = elements.searchResults.querySelector(selector);
-	if (!status) {
-		status = document.createElement('p');
-		status.className = 'provider-status';
-		status.dataset.providerStatus = provider.id;
-		elements.searchResults.append(status);
-	}
-	status.textContent = message;
 }
 
 function updateSearchSentinel(session) {

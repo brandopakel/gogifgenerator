@@ -158,7 +158,6 @@ input[type="range"] { width: 100%; min-height: 32px; accent-color: var(--acid); 
 .source-note { padding: 7px 10px; border: 1px solid var(--line); color: var(--muted); font-weight: 900; font-size: .62rem; letter-spacing: .08em; }
 .search-message { padding: 50px 10px; text-align: center; color: var(--muted); }
 .provider-results { display: grid; gap: 42px; }
-.provider-status { margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); font-size: .68rem; line-height: 1.4; }
 .provider-section { min-width: 0; }
 .provider-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 0 2px 12px; border-bottom: 1px solid var(--line); }
 .provider-heading h3 { margin: 0; font-size: 1rem; letter-spacing: -.02em; }

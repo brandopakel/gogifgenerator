@@ -44,6 +44,31 @@ func TestYarnPhraseSearchUsesTheGoScraperAndOfficialEmbeds(t *testing.T) {
 	}
 }
 
+func TestSearchUsesOnlyTheSharedStatusSurface(t *testing.T) {
+	index, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles, err := fs.ReadFile(Files(), "app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := strings.Count(string(index), `id="search-message"`); count != 1 {
+		t.Fatalf("search status surfaces = %d; want 1", count)
+	}
+	for name, content := range map[string]string{"app.js": string(script), "app.css": string(styles)} {
+		for _, duplicate := range []string{"provider-status", "renderProviderFailure", "providerStatus"} {
+			if strings.Contains(content, duplicate) {
+				t.Fatalf("%s contains duplicate search status mechanism %q", name, duplicate)
+			}
+		}
+	}
+}
+
 func TestClipCardsHydrateQuotesAndNavigateRelatedResults(t *testing.T) {
 	index, err := fs.ReadFile(Files(), "index.html")
 	if err != nil {
