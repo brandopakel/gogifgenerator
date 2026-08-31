@@ -93,6 +93,8 @@ type server struct {
 var (
 	errSemanticUnavailable = errors.New("semantic image generation is not configured")
 	errSemanticGeneration  = errors.New("semantic image generation failed")
+	errStudioUnavailable   = errors.New("studio rendering is not configured")
+	errStudioGeneration    = errors.New("studio rendering failed")
 )
 
 func (s *server) health(w http.ResponseWriter, r *http.Request) {
@@ -336,6 +338,11 @@ func (s *server) generate(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, errSemanticUnavailable):
 			writeError(w, http.StatusServiceUnavailable, "Realistic AI generation is not configured. Configure OpenAI Images or ComfyUI, or choose Fast local.")
+		case errors.Is(err, errStudioUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "Studio Local is not configured. Choose Realistic AI for hosted generation without launching local 3D editors.")
+		case errors.Is(err, errStudioGeneration):
+			s.options.Logger.Warn("studio GIF generation failed", "error", err)
+			writeError(w, http.StatusBadGateway, "Studio Local could not finish the render. Choose Realistic AI to avoid running Blender, Unity, and Unreal on this computer.")
 		case errors.Is(err, errSemanticGeneration):
 			s.options.Logger.Warn("semantic GIF generation failed", "error", err)
 			message := "The semantic image generator could not create this scene. Try again or choose Fast local."
@@ -732,7 +739,9 @@ func (s *server) generateFromReference(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) createGIF(ctx context.Context, request planner.Request, result planner.Result, inputs []imagegen.Input, requireGenerator bool) ([]byte, string, error) {
-	semanticRequired := strings.EqualFold(strings.TrimSpace(request.GenerationMode), "semantic") && len(inputs) == 0
+	mode := strings.ToLower(strings.TrimSpace(request.GenerationMode))
+	studioRequested := mode == "studio"
+	semanticRequired := (mode == "semantic" || studioRequested) && len(inputs) == 0
 	if semanticRequired {
 		// The result screen already presents the prompt beneath the media. Keep
 		// semantic source art clean so text does not cover the generated scene.
@@ -741,21 +750,27 @@ func (s *server) createGIF(ctx context.Context, request planner.Request, result 
 	if semanticRequired && (s.options.ImageGenerator == nil || !s.options.ImageGenerator.Descriptor().Semantic) {
 		return nil, "", errSemanticUnavailable
 	}
-	if s.options.CinematicRenderer != nil {
+	if studioRequested && s.options.CinematicRenderer == nil {
+		return nil, "", errStudioUnavailable
+	}
+	imageSupportsReferences := s.options.ImageGenerator != nil && s.options.ImageGenerator.Descriptor().SupportsReferences
+	studioRequired := studioRequested || (len(inputs) > 0 && requireGenerator && !imageSupportsReferences)
+	if studioRequired && s.options.CinematicRenderer != nil {
 		generated, renderErr := s.options.CinematicRenderer.Render(ctx, cinematic.Request{
 			Prompt: request.Prompt, Inputs: inputs, Spec: result.Spec,
 		})
 		if renderErr == nil {
 			return generated.Data, generated.Engine + "+" + result.Engine, nil
 		}
-		if semanticRequired {
-			return nil, "", fmt.Errorf("%w: %w", errSemanticGeneration, renderErr)
+		if studioRequested {
+			return nil, "", fmt.Errorf("%w: %w", errStudioGeneration, renderErr)
 		}
-		s.options.Logger.Warn("cinematic renderer unavailable; using still-image pipeline", "renderer", s.options.CinematicRenderer.Descriptor().ID, "error", renderErr)
+		return nil, "", renderErr
 	}
 	var output bytes.Buffer
 	engine := result.Engine
-	if s.options.ImageGenerator != nil {
+	useImageGenerator := semanticRequired || requireGenerator
+	if useImageGenerator && s.options.ImageGenerator != nil {
 		generated, generateErr := s.options.ImageGenerator.Generate(ctx, imagegen.Request{
 			Prompt: request.Prompt, Inputs: inputs, Width: result.Spec.Width, Height: result.Spec.Height, Seed: result.Spec.Seed,
 		})
@@ -933,6 +948,9 @@ func (s *server) generated(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/gif")
 	w.Header().Set("Content-Disposition", `inline; filename="`+asset.ID+`.gif"`)
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	if asset.Provenance.Generator != "" {
+		w.Header().Set("X-GoGIF-Engine", asset.Provenance.Generator)
+	}
 	if _, err := io.Copy(w, reader); err != nil {
 		s.options.Logger.Error("serve generated GIF", "id", asset.ID, "error", err)
 	}

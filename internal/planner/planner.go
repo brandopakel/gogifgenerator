@@ -24,9 +24,9 @@ func (r Request) Validate() error {
 		return fmt.Errorf("prompt must contain between 1 and 500 characters")
 	}
 	switch strings.ToLower(strings.TrimSpace(r.GenerationMode)) {
-	case "", "fast", "semantic":
+	case "", "fast", "semantic", "studio":
 	default:
-		return fmt.Errorf("generation_mode must be fast or semantic")
+		return fmt.Errorf("generation_mode must be fast, semantic, or studio")
 	}
 	return nil
 }

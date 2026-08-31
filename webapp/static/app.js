@@ -94,6 +94,12 @@ async function loadConfig() {
     semanticOption.textContent = semanticGenerator
       ? `Realistic AI · ${state.config.image_generator.label}`
       : 'Realistic AI · setup required';
+	const studioOption = elements.generationMode.querySelector('option[value="studio"]');
+	const studioEnabled = Boolean(state.config.quality_pipeline?.enabled);
+	studioOption.textContent = studioEnabled
+	  ? 'Studio Local · Blender + Unity + Unreal'
+	  : 'Studio Local · setup required';
+	studioOption.disabled = !studioEnabled;
 	const recipes = state.config.model_generator?.recipes || [];
 	elements.modelRecipe.replaceChildren();
 	if (recipes.length) {
@@ -203,7 +209,13 @@ async function generateModel(prompt, reroll = false) {
 }
 
 async function generate(prompt, reroll = false) {
-  setWorking(true);
+  const generationMode = elements.generationMode.value;
+  const workingMessage = generationMode === 'studio'
+    ? 'Rendering locally in Blender, Unity, and Unreal…'
+    : generationMode === 'semantic'
+      ? 'Generating the scene in Comfy Cloud…'
+      : 'Animating locally…';
+  setWorking(true, workingMessage);
   if (reroll) state.seed = Date.now();
   try {
     const size = Number(elements.size.value);
@@ -214,7 +226,7 @@ async function generate(prompt, reroll = false) {
       frames: Number(elements.quality.value),
       delay_ms: Number(elements.tempo.value),
       seed: state.seed,
-      generation_mode: elements.generationMode.value,
+      generation_mode: generationMode,
     };
     let endpoint = '/api/v1/gifs/generate';
     if (state.reference) {
@@ -370,6 +382,7 @@ function presentResult(blob, resultURL = '') {
   elements.download.setAttribute('aria-disabled', 'false');
   elements.share.disabled = false;
   elements.copy.disabled = false;
+	elements.copy.textContent = clipboardSupports('image/gif') ? 'Copy' : 'Copy frame';
 }
 
 function presentModelResult(blob, resultURL = '') {
@@ -394,6 +407,7 @@ function presentModelResult(blob, resultURL = '') {
 	elements.download.setAttribute('aria-disabled', 'false');
 	elements.share.disabled = false;
 	elements.copy.disabled = false;
+	elements.copy.textContent = clipboardSupports('model/gltf-binary') ? 'Copy' : 'Copy link';
 }
 
 function clearResult(restoreUpload = true) {
@@ -413,6 +427,7 @@ function clearResult(restoreUpload = true) {
   elements.download.setAttribute('aria-disabled', 'true');
   elements.share.disabled = true;
   elements.copy.disabled = true;
+	elements.copy.textContent = 'Copy';
   elements.reroll.disabled = true;
   if (restoreUpload && state.uploadFile && state.mode === 'edit') {
     elements.preview.src = state.uploadIsVideo ? '' : state.uploadPreviewURL;
@@ -454,16 +469,46 @@ async function copyResult() {
 	const contentType = isModel ? 'model/gltf-binary' : 'image/gif';
   if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
     try {
-		if (ClipboardItem.supports && !ClipboardItem.supports(contentType)) throw new Error('unsupported clipboard type');
+		if (!clipboardSupports(contentType)) throw new Error('unsupported clipboard type');
 		await navigator.clipboard.write([new ClipboardItem({ [contentType]: state.resultBlob })]);
 		showToast(`${isModel ? '3D model' : 'GIF'} copied to the clipboard.`);
       return;
     } catch {
-      // Most desktop browsers reject animated GIF clipboard items. Fall back to its hosted URL.
+      // Animated GIF and GLB clipboard types are not broadly supported.
     }
   }
+	if (!isModel && await copyGIFStill()) {
+		showToast('A still frame was copied. Use Share or Download to keep the animation.');
+		return;
+	}
 	if (await copyResultLink()) showToast(`This browser cannot copy ${isModel ? 'GLB' : 'animated GIF'} data, so its link was copied.`);
 	else showToast(`This browser cannot copy the ${isModel ? '3D model' : 'GIF'}. Save it instead.`);
+}
+
+function clipboardSupports(contentType) {
+	return Boolean(
+		navigator.clipboard?.write
+		&& typeof ClipboardItem !== 'undefined'
+		&& (!ClipboardItem.supports || ClipboardItem.supports(contentType)),
+	);
+}
+
+async function copyGIFStill() {
+	if (!clipboardSupports('image/png') || !elements.preview.complete || !elements.preview.naturalWidth) return false;
+	const canvas = document.createElement('canvas');
+	canvas.width = elements.preview.naturalWidth;
+	canvas.height = elements.preview.naturalHeight;
+	const context = canvas.getContext('2d');
+	if (!context) return false;
+	context.drawImage(elements.preview, 0, 0, canvas.width, canvas.height);
+	const png = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+	if (!png) return false;
+	try {
+		await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 async function copyResultLink() {
@@ -1280,6 +1325,11 @@ elements.prompt.addEventListener('input', () => {
   if (state.mode === 'search') queueSearch();
 });
 document.addEventListener('keydown', (event) => {
+	if (event.key === 'Escape' && document.activeElement === elements.prompt) {
+		event.preventDefault();
+		elements.prompt.blur();
+		return;
+	}
   if (state.mode !== 'edit' || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'z') return;
   event.preventDefault();
   if (event.shiftKey) redoEditor();

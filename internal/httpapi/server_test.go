@@ -176,14 +176,14 @@ func TestSemanticGenerationUsesSemanticImageGenerator(t *testing.T) {
 	}
 }
 
-func TestSemanticCinematicGenerationKeepsPromptBelowMedia(t *testing.T) {
+func TestStudioCinematicGenerationKeepsPromptBelowMedia(t *testing.T) {
 	renderer := &recordingCinematicRenderer{}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate", bytes.NewBufferString(`{
       "prompt": "a hero swinging through the city",
       "width": 128,
       "height": 128,
       "frames": 4,
-      "generation_mode": "semantic"
+      "generation_mode": "studio"
     }`))
 	response := httptest.NewRecorder()
 	New(Options{Planner: planner.Local{}, CinematicRenderer: renderer, ImageGenerator: &recordingImageGenerator{}}).ServeHTTP(response, request)
@@ -381,7 +381,8 @@ func TestGenerateAnimatesLocalImageGeneratorOutput(t *testing.T) {
       "prompt": "a tiny local robot",
       "width": 128,
       "height": 128,
-      "frames": 4
+      "frames": 4,
+      "generation_mode": "semantic"
     }`))
 	response := httptest.NewRecorder()
 	New(Options{Planner: planner.Local{}, ImageGenerator: generator}).ServeHTTP(response, request)
@@ -406,7 +407,8 @@ func TestGenerateUsesCinematicPipelineBeforeStillGenerator(t *testing.T) {
       "prompt": "cinematic robot",
       "width": 128,
       "height": 128,
-      "frames": 4
+      "frames": 4,
+      "generation_mode": "studio"
     }`))
 	response := httptest.NewRecorder()
 	New(Options{Planner: planner.Local{}, CinematicRenderer: renderer, ImageGenerator: generator}).ServeHTTP(response, request)
@@ -421,6 +423,44 @@ func TestGenerateUsesCinematicPipelineBeforeStillGenerator(t *testing.T) {
 	}
 	if generator.request.Prompt != "" {
 		t.Fatalf("still generator unexpectedly ran: %#v", generator.request)
+	}
+}
+
+func TestFastLocalSkipsImageAndCinematicGenerators(t *testing.T) {
+	renderer := &recordingCinematicRenderer{}
+	generator := &recordingImageGenerator{}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate", bytes.NewBufferString(`{
+      "prompt": "do this without cloud or editors",
+      "width": 128,
+      "height": 128,
+      "frames": 4,
+      "generation_mode": "fast"
+    }`))
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, CinematicRenderer: renderer, ImageGenerator: generator}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if generator.request.Prompt != "" || renderer.request.Prompt != "" {
+		t.Fatalf("fast mode called configured generators: image=%#v cinematic=%#v", generator.request, renderer.request)
+	}
+	if got := response.Header().Get("X-GoGIF-Engine"); got != "local" {
+		t.Fatalf("X-GoGIF-Engine = %q", got)
+	}
+}
+
+func TestStudioModeExplainsMissingLocalPipeline(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/gifs/generate", bytes.NewBufferString(`{
+      "prompt": "studio robot",
+      "width": 128,
+      "height": 128,
+      "frames": 4,
+      "generation_mode": "studio"
+    }`))
+	response := httptest.NewRecorder()
+	New(Options{Planner: planner.Local{}, ImageGenerator: &recordingImageGenerator{}}).ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "Studio Local is not configured") {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
 	}
 }
 
@@ -514,8 +554,8 @@ func TestGeneratedServesOnlyConfiguredLibraryContent(t *testing.T) {
 	if response.Code != http.StatusOK || response.Body.String() != "GIF89a-generated" {
 		t.Fatalf("status = %d; body = %q", response.Code, response.Body.String())
 	}
-	if reader.id != "gif_owned" || response.Header().Get("Content-Type") != "image/gif" {
-		t.Fatalf("id = %q; Content-Type = %q", reader.id, response.Header().Get("Content-Type"))
+	if reader.id != "gif_owned" || response.Header().Get("Content-Type") != "image/gif" || response.Header().Get("X-GoGIF-Engine") != "test-engine" {
+		t.Fatalf("id = %q; headers = %#v", reader.id, response.Header())
 	}
 }
 
@@ -619,7 +659,7 @@ type recordingModelReader struct {
 
 func (r *recordingGeneratedReader) OpenGenerated(_ context.Context, id string) (media.Asset, io.ReadCloser, error) {
 	r.id = id
-	return media.Asset{ID: id}, io.NopCloser(bytes.NewReader(r.data)), nil
+	return media.Asset{ID: id, Provenance: media.Provenance{Generator: "test-engine"}}, io.NopCloser(bytes.NewReader(r.data)), nil
 }
 
 func (r *recordingModelReader) OpenModel(_ context.Context, id string) (media.Asset, io.ReadCloser, error) {

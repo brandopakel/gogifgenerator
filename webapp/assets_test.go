@@ -85,6 +85,12 @@ func TestStylesRespectReducedMotionAndVisibleFocus(t *testing.T) {
 			t.Fatalf("app.css does not contain %q", marker)
 		}
 	}
+	if strings.Contains(styles, "textarea:focus-visible") {
+		t.Fatal("textarea has a second focus outline in addition to the prompt form")
+	}
+	if !strings.Contains(styles, "calc(100svh - 230px)") {
+		t.Fatal("preview is not constrained to the visible viewport")
+	}
 }
 
 func TestServiceWorkerDoesNotInterceptProviderMedia(t *testing.T) {
@@ -119,12 +125,12 @@ func TestCreateModeRequestsSemanticGenerationExplicitly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, marker := range []string{`value="semantic"`, "Realistic AI · subject-aware"} {
+	for _, marker := range []string{`value="semantic"`, "Realistic AI · subject-aware", `value="studio"`, "Studio Local · Blender + Unity + Unreal"} {
 		if !strings.Contains(string(index), marker) {
 			t.Fatalf("index.html does not contain %q", marker)
 		}
 	}
-	for _, marker := range []string{"generation_mode: elements.generationMode.value", "image_generator?.semantic", "Realistic AI · setup required"} {
+	for _, marker := range []string{"generation_mode: generationMode", "image_generator?.semantic", "Realistic AI · setup required", "quality_pipeline?.enabled", "Rendering locally in Blender, Unity, and Unreal"} {
 		if !strings.Contains(string(script), marker) {
 			t.Fatalf("app.js does not contain %q", marker)
 		}
@@ -139,8 +145,22 @@ func TestResultActionsFallBackToShareableGIFLink(t *testing.T) {
 	script := string(data)
 	for _, marker := range []string{
 		"response.headers.get('Location')", "function copyResultLink()", "navigator.clipboard.writeText(state.resultURL)",
-		"so its link was copied", "ClipboardItem.supports(contentType)",
+		"so its link was copied", "function copyGIFStill()", "canvas.toBlob(resolve, 'image/png')",
+		"A still frame was copied. Use Share or Download to keep the animation.",
 	} {
+		if !strings.Contains(script, marker) {
+			t.Fatalf("app.js does not contain %q", marker)
+		}
+	}
+}
+
+func TestEscapeLeavesPromptInput(t *testing.T) {
+	data, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	for _, marker := range []string{"event.key === 'Escape'", "document.activeElement === elements.prompt", "elements.prompt.blur()"} {
 		if !strings.Contains(script, marker) {
 			t.Fatalf("app.js does not contain %q", marker)
 		}

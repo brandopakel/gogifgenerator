@@ -24,7 +24,7 @@ The Go orchestrator, strict job manifest, Blender FBX stage, Unity batch project
 
 The current Mac has Blender 5.2 LTS, FFmpeg 9, Unity 6000.3.23f1, Unreal Engine 5.8.2, Xcode 26.1.1, Apple's Metal toolchain, and Comfy Desktop installed. Unity Personal is activated. Unity produced a validated transparent PNG/motion sequence; Unreal imported the Blender FBX and produced a validated square PNG sequence; and an API request completed the full Blender → Unity → Unreal → FFmpeg path. A second request using a rights-approved temporary Wikimedia reference returned `reference+blender+unity-6.3+unreal-5+ffmpeg+local` and visually retained the semantic image.
 
-This Mac has 8 GB of memory. Unreal's macOS requirements list 16 GB as the minimum and 32 GB as recommended, so it is suitable for functional testing but not representative production rendering. The cinematic pipeline remains opt-in and serialized.
+This Mac has 8 GB of memory. Unreal's macOS requirements list 16 GB as the minimum and 32 GB as recommended, so it is suitable for functional testing but not representative production rendering. The cinematic pipeline remains opt-in, serialized, and selected only by `generation_mode=studio`. Normal `generation_mode=semantic` requests use hosted semantic imagery plus the lightweight Go animator and do not launch the editors.
 
 Unity 6.3 LTS is the intended Unity target; Unity documents it as the current LTS line supported through December 2027. Its editor supports unattended `-batchmode` plus `-executeMethod`, which is what the Go runner uses. Unreal's official editor scripting supports `-ExecutePythonScript`, and its Movie Render Pipeline is the longer-term replacement for the starter high-resolution capture pass.
 
@@ -71,6 +71,8 @@ make run
 
 Replace versioned editor paths with the versions actually installed. On Windows, point the executable variables at `Unity.exe`, `UnrealEditor-Cmd.exe`, and `ffmpeg.exe`.
 
+Enabling these variables only advertises **Studio Local** as an available mode. It does not route ordinary **Realistic AI** creations through the editors. Select Studio explicitly in the PWA or send `"generation_mode":"studio"` to the generation API. Use `"generation_mode":"semantic"` for cloud source generation plus lightweight local animation, or `"generation_mode":"fast"` for zero-credit procedural Go rendering.
+
 For AI-generated reference art, configure local ComfyUI or the hosted adapter. When the cinematic pipeline is enabled, a semantic still generator becomes its reference-imagery stage:
 
 ```sh
@@ -94,12 +96,13 @@ Without a semantic generator, Blender still creates a deterministic prompt-seede
 ## Operational guarantees
 
 - The feature is opt-in; merely installing an editor does not launch it.
+- Only an explicit **Studio Local** request launches Blender, Unity, and Unreal. **Realistic AI** never enters this local engine chain.
 - Enabling the pipeline is strict: GoGIF refuses to start when an executable, Unity 6.3 project, Unreal 5 project, or Unreal Python script is invalid.
 - Engine processes receive a Go-authored manifest path, never raw user-supplied command arguments.
 - Local cinematic jobs are serialized because Unity cannot safely open the same project from two editor processes at once; a canceled request can stop while waiting for the engine slot.
 - All reference bytes, FBX files, motion data, frame sequences, logs, and intermediate GIFs live in a request-scoped temporary directory.
 - PNG dimensions and counts are checked after Unity and Unreal; FBX, motion JSON, PNG, and GIF sizes are bounded. Unreal receives the manifest dimensions as its render viewport and its latent screenshot tasks yield between editor ticks.
-- A failed **Fast local** creation can fall back to the existing still/Go renderer. It never labels that fallback as Unity or Unreal output.
+- **Fast local** calls neither the semantic image provider nor the cinematic renderer. It never consumes hosted credits or labels its output as Unity or Unreal.
 - A **Realistic AI** request is fail-closed. A missing or failed semantic generator returns a clear 503/502 response and never disguises procedural shapes as a subject-aware result.
 - Provider-reference generation remains fail-closed when no configured path can safely transform the reference.
 
