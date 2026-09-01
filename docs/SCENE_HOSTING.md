@@ -52,6 +52,12 @@ On the Windows/NVIDIA host:
 
 1. Install or verify Go, Blender, Unreal Engine 5.8, FFmpeg, the latest NVIDIA
    Studio driver, Git, and Tailscale.
+   Epic's first Unreal launch builds caches and indexes a large asset set. Use
+   32 GB or more of physical memory when possible. A 16 GB development host
+   must have at least a 32 GB pagefile on an internal SSD and must be rebooted
+   after changing it; a fixed 16 GB pagefile can exhaust the Windows commit
+   limit before Unreal finishes initializing. Do not place the pagefile on a
+   removable worker/workspace drive.
 2. Clone this repository to `C:\gogifgenerator` and copy
    `.env.worker.example` to the ignored `.env.worker` file.
 3. Put the same `GOGIF_SCENE_WORKER_TOKEN` in the API and worker files. Put the
