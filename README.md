@@ -283,6 +283,9 @@ Build the Phase 1 Windows/NVIDIA Scene worker from macOS/Linux with
 `make worker-windows`, or build and run it directly on Windows with
 `scripts\windows\run-scene-worker.ps1`. Copy `.env.worker.example` to the
 ignored `.env.worker` first; never commit worker or Comfy credentials.
+After the one-shot readiness check passes, install its current-user scheduled
+task with `scripts\windows\install-scene-worker-task.ps1 -Start`. The task runs
+at login and restarts after transient failures without opening an inbound port.
 
 ## Extension development
 

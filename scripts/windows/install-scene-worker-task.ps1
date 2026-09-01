@@ -1,0 +1,67 @@
+param(
+    [string]$EnvironmentFile = ".env.worker",
+    [string]$TaskName = "GoGIF Scene Worker",
+    [switch]$Start,
+    [switch]$Uninstall
+)
+
+$ErrorActionPreference = "Stop"
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$WorkerScript = Join-Path $PSScriptRoot "run-scene-worker.ps1"
+$EnvironmentPath = if ([System.IO.Path]::IsPathRooted($EnvironmentFile)) {
+    $EnvironmentFile
+} else {
+    Join-Path $RepoRoot $EnvironmentFile
+}
+
+if ($Uninstall) {
+    $ExistingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($null -ne $ExistingTask) {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+        Write-Host "Removed scheduled task: $TaskName"
+    } else {
+        Write-Host "Scheduled task is not installed: $TaskName"
+    }
+    exit 0
+}
+
+if (-not (Test-Path $WorkerScript -PathType Leaf)) {
+    throw "Scene worker launcher not found: $WorkerScript"
+}
+if (-not (Test-Path $EnvironmentPath -PathType Leaf)) {
+    throw "Scene worker environment file not found: $EnvironmentPath"
+}
+
+$PowerShell = (Get-Process -Id $PID).Path
+$ActionArguments = @(
+    "-NoLogo"
+    "-NoProfile"
+    "-ExecutionPolicy Bypass"
+    ('-File "{0}"' -f $WorkerScript)
+    ('-EnvironmentFile "{0}"' -f $EnvironmentPath)
+) -join " "
+
+$Action = New-ScheduledTaskAction -Execute $PowerShell -Argument $ActionArguments -WorkingDirectory $RepoRoot
+$Trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+$Principal = New-ScheduledTaskPrincipal `
+    -UserId "$env:USERDOMAIN\$env:USERNAME" `
+    -LogonType Interactive `
+    -RunLevel Limited
+$Settings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) `
+    -MultipleInstances IgnoreNew `
+    -RestartCount 10 `
+    -RestartInterval (New-TimeSpan -Minutes 1) `
+    -StartWhenAvailable
+$Task = New-ScheduledTask -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings
+
+Register-ScheduledTask -TaskName $TaskName -InputObject $Task -Force | Out-Null
+Write-Host "Installed scheduled task: $TaskName"
+Write-Host "The worker will start at login and restart after transient failures."
+
+if ($Start) {
+    Start-ScheduledTask -TaskName $TaskName
+    Write-Host "Started scheduled task: $TaskName"
+}

@@ -70,6 +70,20 @@ cd C:\gogifgenerator
 .\scripts\windows\run-scene-worker.ps1
 ```
 
+For a persistent current-user worker that starts at Windows login and restarts
+after transient failures, install and start the versioned scheduled task:
+
+```powershell
+.\scripts\windows\install-scene-worker-task.ps1 -Start
+```
+
+Inspect it with `Get-ScheduledTask -TaskName "GoGIF Scene Worker"`. Remove it
+only when intended with
+`.\scripts\windows\install-scene-worker-task.ps1 -Uninstall`. The task uses an
+interactive, non-elevated principal because Unreal needs the signed-in user's
+graphics session and Epic profile; the worker still makes outbound requests
+only.
+
 The worker rejects plain HTTP except on loopback, never opens a listening port,
 never logs either secret, and removes each temporary workspace after
 upload or failure. Every claim carries protocol version, worker version, target,
