@@ -67,6 +67,7 @@ type Options struct {
 	LibraryCatalog    *media.Repository
 	Billing           *billing.Stripe
 	Scenes            *scene.Repository
+	SceneArtifacts    *scene.ArtifactRepository
 	SceneWorkerToken  string
 	SceneLease        time.Duration
 }
@@ -119,6 +120,7 @@ func New(options Options) http.Handler {
 	mux.HandleFunc("POST /api/v1/scenes/{id}/cancel", server.requireAccount(server.cancelScene))
 	mux.HandleFunc("POST /api/v1/scene-jobs/claim", server.sceneWorker(server.claimSceneJob))
 	mux.HandleFunc("POST /api/v1/scene-jobs/{id}/heartbeat", server.sceneWorker(server.heartbeatSceneJob))
+	mux.HandleFunc("PUT /api/v1/scene-jobs/{id}/artifacts/{kind}", server.sceneWorker(server.uploadSceneArtifact))
 	mux.HandleFunc("POST /api/v1/scene-jobs/{id}/finish", server.sceneWorker(server.finishSceneJob))
 	mux.Handle("/", staticHandler())
 	var handler http.Handler = mux

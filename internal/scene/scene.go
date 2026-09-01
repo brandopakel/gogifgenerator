@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	MaxAttempts  = 3
-	MaxArtifacts = 16
+	WorkerProtocolVersion = 1
+	MaxAttempts           = 3
+	MaxArtifacts          = 16
 )
 
 var (
@@ -98,6 +99,9 @@ func (r CreateRequest) Normalize(allowedTargets []EngineTarget) (CreateRequest, 
 	}
 	if r.Width < 256 || r.Width > 3840 || r.Height < 256 || r.Height > 3840 {
 		return CreateRequest{}, fmt.Errorf("%w: dimensions must be between 256 and 3840 pixels", ErrInvalid)
+	}
+	if r.Width%2 != 0 || r.Height%2 != 0 {
+		return CreateRequest{}, fmt.Errorf("%w: video dimensions must be even", ErrInvalid)
 	}
 	if r.FPS == 0 {
 		r.FPS = 24
@@ -189,6 +193,69 @@ type Job struct {
 type Claim struct {
 	Job     Job     `json:"job"`
 	Project Project `json:"project"`
+}
+
+type WorkerCapability struct {
+	ID      string `json:"id"`
+	Version string `json:"version,omitempty"`
+}
+
+type WorkerHello struct {
+	ProtocolVersion int                `json:"protocol_version"`
+	WorkerID        string             `json:"worker_id"`
+	WorkerVersion   string             `json:"worker_version"`
+	Targets         []EngineTarget     `json:"engine_targets"`
+	Capabilities    []WorkerCapability `json:"capabilities"`
+}
+
+func (h WorkerHello) Validate(allowedTargets []EngineTarget) error {
+	if h.ProtocolVersion != WorkerProtocolVersion {
+		return fmt.Errorf("%w: worker protocol version %d is not supported", ErrInvalid, h.ProtocolVersion)
+	}
+	if strings.TrimSpace(h.WorkerID) == "" || len(h.WorkerID) > 120 {
+		return fmt.Errorf("%w: worker_id is required", ErrInvalid)
+	}
+	if strings.TrimSpace(h.WorkerVersion) == "" || len(h.WorkerVersion) > 80 {
+		return fmt.Errorf("%w: worker_version is required", ErrInvalid)
+	}
+	if len(h.Targets) == 0 || len(h.Targets) > len(allowedTargets) {
+		return fmt.Errorf("%w: at least one enabled engine target is required", ErrInvalid)
+	}
+	for _, target := range h.Targets {
+		if !slices.Contains(allowedTargets, target) {
+			return fmt.Errorf("%w: worker target %q is not enabled", ErrInvalid, target)
+		}
+	}
+	if len(h.Capabilities) == 0 || len(h.Capabilities) > 16 {
+		return fmt.Errorf("%w: worker capabilities are required", ErrInvalid)
+	}
+	capabilities := make(map[string]bool, len(h.Capabilities))
+	for _, capability := range h.Capabilities {
+		if strings.TrimSpace(capability.ID) == "" || len(capability.ID) > 80 || len(capability.Version) > 160 {
+			return fmt.Errorf("%w: worker capability metadata is invalid", ErrInvalid)
+		}
+		capabilities[capability.ID] = true
+	}
+	for _, target := range h.Targets {
+		required := []string{"blender", "ffmpeg"}
+		if target == TargetUnreal {
+			required = append(required, "unreal-5")
+		} else {
+			required = append(required, "unity-6.3")
+		}
+		for _, capability := range required {
+			if !capabilities[capability] {
+				return fmt.Errorf("%w: %s target requires the %s capability", ErrInvalid, target, capability)
+			}
+		}
+	}
+	return nil
+}
+
+type ClaimResponse struct {
+	ProtocolVersion int   `json:"protocol_version"`
+	LeaseSeconds    int   `json:"lease_seconds"`
+	Claim           Claim `json:"claim"`
 }
 
 type FinishRequest struct {

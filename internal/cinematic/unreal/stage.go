@@ -49,7 +49,7 @@ func New(options Options) (cinematic.Stage, error) {
 		},
 		Validate: func(job cinematic.Job) error {
 			if _, err := os.Stat(job.Manifest.Paths.UnityMotion); err != nil {
-				return errors.New("Unity motion contract is missing")
+				return errors.New("portable motion contract is missing")
 			}
 			if _, err := os.Stat(job.Manifest.Paths.BlenderAsset); err != nil {
 				return errors.New("Blender FBX asset is missing")

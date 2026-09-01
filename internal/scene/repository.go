@@ -58,6 +58,23 @@ func (r *Repository) AllowedTargets() []EngineTarget {
 	return append([]EngineTarget(nil), r.allowedTargets...)
 }
 
+func (r *Repository) LeasedProject(ctx context.Context, jobID, workerID, leaseToken string) (Project, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	job, err := r.getJob(ctx, jobID)
+	if err != nil {
+		return Project{}, ErrNotFound
+	}
+	if !validLease(job, workerID, leaseToken, r.now().UTC()) {
+		return Project{}, ErrLeaseLost
+	}
+	project, err := r.getProject(ctx, job.ProjectID)
+	if err != nil {
+		return Project{}, err
+	}
+	return project, nil
+}
+
 func (r *Repository) Create(ctx context.Context, ownerID string, request CreateRequest) (Project, error) {
 	ownerID = strings.TrimSpace(ownerID)
 	if ownerID == "" {

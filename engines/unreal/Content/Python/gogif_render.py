@@ -1,7 +1,7 @@
 """GoGIF Unreal Engine 5 unattended beauty-frame renderer.
 
 The Go process supplies only a private, bounded manifest path. This script
-imports the Blender FBX, applies Unity's portable motion contract, lights the
+imports the Blender FBX, applies GoGIF's portable motion contract, lights the
 scene, and emits one PNG per requested frame for GoGIF to validate.
 """
 
@@ -22,13 +22,13 @@ def command_value(name):
 def validate(manifest):
     if manifest.get("version") != 1:
         raise RuntimeError("Unsupported GoGIF manifest version")
-    if not (128 <= int(manifest["width"]) <= 1024 and 128 <= int(manifest["height"]) <= 1024):
+    if not (128 <= int(manifest["width"]) <= 3840 and 128 <= int(manifest["height"]) <= 3840):
         raise RuntimeError("GoGIF frame dimensions are outside safe bounds")
-    if not 4 <= int(manifest["frames"]) <= 48:
+    if not 4 <= int(manifest["frames"]) <= 1800:
         raise RuntimeError("GoGIF frame count is outside safe bounds")
     paths = manifest["paths"]
     if not os.path.isfile(paths["blender_asset"]) or not os.path.isfile(paths["unity_motion"]):
-        raise RuntimeError("Blender asset or Unity motion contract is missing")
+        raise RuntimeError("Blender asset or portable motion contract is missing")
 
 
 def import_asset(filename):
@@ -54,7 +54,7 @@ def render(manifest):
     with open(paths["unity_motion"], "r", encoding="utf-8") as handle:
         motion = json.load(handle)
     if motion.get("version") != 1 or len(motion.get("frames", [])) != int(manifest["frames"]):
-        raise RuntimeError("Unity motion contract is invalid")
+        raise RuntimeError("GoGIF motion contract is invalid")
     os.makedirs(paths["unreal_frames"], exist_ok=True)
 
     actor_subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)

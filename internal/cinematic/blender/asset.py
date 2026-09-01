@@ -97,9 +97,13 @@ def build_scene(manifest):
     reference_path = paths.get("reference_image", "")
     has_reference = bool(reference_path and os.path.isfile(reference_path))
     if has_reference:
-        bpy.ops.mesh.primitive_plane_add(size=9.0, location=(0.0, 0.0, -0.02))
+        width = float(manifest["width"])
+        height = float(manifest["height"])
+        longest = max(width, height)
+        bpy.ops.mesh.primitive_plane_add(size=2.0, location=(0.0, 0.0, -0.02))
         reference = bpy.context.object
         reference.name = "GoGIF_Semantic_Reference"
+        reference.scale = (4.5 * width / longest, 4.5 * height / longest, 1.0)
         reference.data.materials.append(reference_material(reference_path))
     else:
         base_hue = random.random()

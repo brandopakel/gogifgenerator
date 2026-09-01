@@ -12,7 +12,7 @@ import (
 // stage may consume it. Engine projects never get to choose paths supplied by
 // an HTTP client; every path comes from GoGIF's private job manifest.
 func ValidatePNGSequence(directory string, frames, width, height int) error {
-	if frames < 1 || frames > 48 || width < 1 || height < 1 {
+	if frames < 1 || frames > 1800 || width < 1 || height < 1 {
 		return errors.New("invalid expected frame sequence")
 	}
 	for index := range frames {

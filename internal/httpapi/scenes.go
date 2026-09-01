@@ -10,6 +10,7 @@ import (
 
 	"github.com/brandopakel/gogifgenerator/internal/account"
 	"github.com/brandopakel/gogifgenerator/internal/scene"
+	"github.com/brandopakel/gogifgenerator/internal/store"
 )
 
 func sceneWorkspaceDescriptor(repository *scene.Repository) map[string]any {
@@ -129,11 +130,12 @@ func (s *server) sceneWorker(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *server) claimSceneJob(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		WorkerID string               `json:"worker_id"`
-		Targets  []scene.EngineTarget `json:"engine_targets"`
-	}
+	var request scene.WorkerHello
 	if !decodeSmallJSON(w, r, &request) {
+		return
+	}
+	if err := request.Validate(s.options.Scenes.AllowedTargets()); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	claim, err := s.options.Scenes.Claim(r.Context(), request.WorkerID, request.Targets, s.sceneLease())
@@ -145,7 +147,11 @@ func (s *server) claimSceneJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, claim)
+	writeJSON(w, http.StatusOK, scene.ClaimResponse{
+		ProtocolVersion: scene.WorkerProtocolVersion,
+		LeaseSeconds:    int(s.sceneLease() / time.Second),
+		Claim:           claim,
+	})
 }
 
 func (s *server) heartbeatSceneJob(w http.ResponseWriter, r *http.Request) {
@@ -183,6 +189,29 @@ func (s *server) finishSceneJob(w http.ResponseWriter, r *http.Request) {
 	if !decodeSmallJSON(w, r, &request) {
 		return
 	}
+	project, err := s.options.Scenes.LeasedProject(r.Context(), r.PathValue("id"), request.WorkerID, request.LeaseToken)
+	if errors.Is(err, scene.ErrLeaseLost) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if errors.Is(err, scene.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(request.Result.Artifacts) > 0 {
+		if s.options.SceneArtifacts == nil {
+			writeError(w, http.StatusServiceUnavailable, "Scene artifact storage is not configured.")
+			return
+		}
+		if err := s.options.SceneArtifacts.Verify(r.Context(), project.ID, request.Result.Artifacts); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	project, terminal, err := s.options.Scenes.Finish(r.Context(), r.PathValue("id"), request.WorkerID, request.LeaseToken, request.Result)
 	if errors.Is(err, scene.ErrLeaseLost) {
 		writeError(w, http.StatusConflict, err.Error())
@@ -197,6 +226,41 @@ func (s *server) finishSceneJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"project": project, "terminal": terminal})
+}
+
+func (s *server) uploadSceneArtifact(w http.ResponseWriter, r *http.Request) {
+	if s.options.SceneArtifacts == nil {
+		writeError(w, http.StatusServiceUnavailable, "Scene artifact storage is not configured.")
+		return
+	}
+	workerID := strings.TrimSpace(r.Header.Get("X-GoGIF-Worker-ID"))
+	leaseToken := strings.TrimSpace(r.Header.Get("X-GoGIF-Lease-Token"))
+	project, err := s.options.Scenes.LeasedProject(r.Context(), r.PathValue("id"), workerID, leaseToken)
+	if errors.Is(err, scene.ErrLeaseLost) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if errors.Is(err, scene.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(30 * time.Minute))
+	artifact, err := s.options.SceneArtifacts.Put(
+		r.Context(), project.ID, r.PathValue("kind"), r.Header.Get("X-GoGIF-Filename"), r.Header.Get("Content-Type"), r.Body,
+	)
+	if errors.Is(err, store.ErrTooLarge) {
+		writeError(w, http.StatusRequestEntityTooLarge, "The Scene artifact exceeds this deployment's upload limit.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, artifact)
 }
 
 func (s *server) sceneLease() time.Duration {

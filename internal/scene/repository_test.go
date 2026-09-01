@@ -90,6 +90,9 @@ func TestValidationAndOwnership(t *testing.T) {
 	if _, err := repository.Create(context.Background(), "usr", CreateRequest{Prompt: "x", Target: TargetUnity}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("disabled target error = %v", err)
 	}
+	if _, err := repository.Create(context.Background(), "usr", CreateRequest{Prompt: "x", Width: 721, Height: 720}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("odd video dimension error = %v", err)
+	}
 	project, err := repository.Create(context.Background(), "usr", CreateRequest{Prompt: "x"})
 	if err != nil {
 		t.Fatal(err)
@@ -100,5 +103,19 @@ func TestValidationAndOwnership(t *testing.T) {
 	items, err := repository.ListProjects(context.Background(), "usr", 20)
 	if err != nil || len(items) != 1 || items[0].ID != project.ID {
 		t.Fatalf("list = %#v, %v", items, err)
+	}
+}
+
+func TestWorkerHelloRequiresTargetCapabilities(t *testing.T) {
+	hello := WorkerHello{
+		ProtocolVersion: WorkerProtocolVersion, WorkerID: "gpu-one", WorkerVersion: "test", Targets: []EngineTarget{TargetUnreal},
+		Capabilities: []WorkerCapability{{ID: "blender"}, {ID: "unreal-5"}, {ID: "ffmpeg"}},
+	}
+	if err := hello.Validate([]EngineTarget{TargetUnreal}); err != nil {
+		t.Fatal(err)
+	}
+	hello.Capabilities = hello.Capabilities[:2]
+	if err := hello.Validate([]EngineTarget{TargetUnreal}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("missing FFmpeg capability = %v", err)
 	}
 }

@@ -103,6 +103,7 @@ func main() {
 	accounts := account.NewRepository(catalog)
 	usage := account.NewLedger(catalog)
 	var sceneRepository *scene.Repository
+	var sceneArtifacts *scene.ArtifactRepository
 	if settings.SceneJobsEnabled {
 		if settings.AuthMode == auth.ModeDisabled {
 			logger.Error("configure Scene jobs", "error", "accounts must be enabled before Scene jobs")
@@ -119,6 +120,11 @@ func main() {
 		sceneRepository, err = scene.NewRepository(catalog, scene.Options{AllowedTargets: targets})
 		if err != nil {
 			logger.Error("configure Scene jobs", "error", err)
+			os.Exit(1)
+		}
+		sceneArtifacts, err = scene.NewArtifactRepository(catalog, blobs, scene.DefaultMaxArtifactBytes)
+		if err != nil {
+			logger.Error("configure Scene artifacts", "error", err)
 			os.Exit(1)
 		}
 		if catalogBackend == "memory" {
@@ -367,6 +373,7 @@ func main() {
 		LibraryCatalog:    mediaRepository,
 		Billing:           stripeBilling,
 		Scenes:            sceneRepository,
+		SceneArtifacts:    sceneArtifacts,
 		SceneWorkerToken:  settings.SceneWorkerToken,
 		SceneLease:        2 * time.Minute,
 	})

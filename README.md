@@ -14,6 +14,7 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Server-side GPT Image 2 adapter for high-fidelity prompt-to-image and reference editing, separately paid and explicitly opt-in
 - Opt-in experimental scene pipeline with Blender asset preparation, Unity 6.3 real-time motion/VFX, Unreal Engine 5 cinematic rendering, and FFmpeg encoding
 - UI-hidden asynchronous Scene project/job foundation with owner isolation, target-aware worker leases, progress, retries, cooperative cancellation, and artifact contracts
+- Cross-compiled outbound-only Windows Scene worker for Comfy reference acquisition → Blender FBX → Unreal frames → FFmpeg MP4/WebM, with heartbeat cancellation and verified private artifact upload
 - Natural-language art planning with a deterministic offline planner
 - Optional, disabled-by-default OpenAI art direction through the Responses API and strict structured output
 - Automatic local fallback if the AI provider is unavailable
@@ -251,6 +252,7 @@ The GIF bytes go to content-addressed blob storage; MemKV holds the searchable r
 | `GET` | `/api/v1/scenes/{id}` | Read owner-scoped Scene state, progress, and artifact metadata |
 | `POST` | `/api/v1/scenes/{id}/cancel` | Cancel queued work or request cooperative worker cancellation |
 | `POST` | `/api/v1/scene-jobs/...` | Worker-only claim, heartbeat, and finish protocol protected by a server secret |
+| `PUT` | `/api/v1/scene-jobs/{id}/artifacts/{kind}` | Lease-bound streaming upload into private content-addressed storage |
 
 Example:
 
@@ -276,6 +278,11 @@ web browser ─────────┘                   ├─> Comfy Cloud
 The planner speaks a small, validated animation-spec contract. That keeps model vendors, renderers, and future native clients replaceable. The OpenAI adapter uses the Responses API with Structured Outputs, following the [official OpenAI API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).
 
 Read [Architecture](docs/ARCHITECTURE.md) for boundaries and scaling decisions, [Scene hosting](docs/SCENE_HOSTING.md) for the worker/hosting plan, [Media sources](docs/MEDIA_SOURCES.md) for the provider/rights matrix, [ADR 0001](docs/adr/0001-media-storage-and-memkv.md) for storage, and [Roadmap](docs/ROADMAP.md) for the staged product plan.
+
+Build the Phase 1 Windows/NVIDIA Scene worker from macOS/Linux with
+`make worker-windows`, or build and run it directly on Windows with
+`scripts\windows\run-scene-worker.ps1`. Copy `.env.worker.example` to the
+ignored `.env.worker` first; never commit worker or Comfy credentials.
 
 ## Extension development
 

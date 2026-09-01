@@ -36,7 +36,10 @@ func TestSceneHTTPJobLifecycle(t *testing.T) {
 		t.Fatalf("project = %#v; headers = %#v", project, response.Header())
 	}
 
-	claimRequest := httptest.NewRequest(http.MethodPost, "http://example.com/api/v1/scene-jobs/claim", bytes.NewBufferString(`{"worker_id":"gpu-one","engine_targets":["unreal"]}`))
+	claimRequest := httptest.NewRequest(http.MethodPost, "http://example.com/api/v1/scene-jobs/claim", bytes.NewBufferString(`{
+      "protocol_version":1,"worker_id":"gpu-one","worker_version":"test","engine_targets":["unreal"],
+      "capabilities":[{"id":"blender","version":"test"},{"id":"unreal-5","version":"5.x"},{"id":"ffmpeg","version":"test"}]
+    }`))
 	claimRequest.Header.Set("Authorization", "Bearer "+token)
 	claimRequest.Header.Set("Content-Type", "application/json")
 	claimResponse := httptest.NewRecorder()
@@ -44,10 +47,11 @@ func TestSceneHTTPJobLifecycle(t *testing.T) {
 	if claimResponse.Code != http.StatusOK {
 		t.Fatalf("claim status = %d; body = %s", claimResponse.Code, claimResponse.Body.String())
 	}
-	var claim scene.Claim
-	if err := json.NewDecoder(claimResponse.Body).Decode(&claim); err != nil {
+	var envelope scene.ClaimResponse
+	if err := json.NewDecoder(claimResponse.Body).Decode(&envelope); err != nil {
 		t.Fatal(err)
 	}
+	claim := envelope.Claim
 
 	heartbeatRequest := httptest.NewRequest(http.MethodPost, "http://example.com/api/v1/scene-jobs/"+claim.Job.ID+"/heartbeat", bytes.NewBufferString(`{
       "worker_id":"gpu-one","lease_token":"`+claim.Job.LeaseToken+`","stage":"blender-assets","progress":20
@@ -60,9 +64,27 @@ func TestSceneHTTPJobLifecycle(t *testing.T) {
 		t.Fatalf("heartbeat status = %d; body = %s", heartbeatResponse.Code, heartbeatResponse.Body.String())
 	}
 
-	artifact := `{"kind":"video","storage_key":"scenes/` + project.ID + `/master.mp4","content_type":"video/mp4","size_bytes":2048,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`
+	uploadRequest := httptest.NewRequest(http.MethodPut, "http://example.com/api/v1/scene-jobs/"+claim.Job.ID+"/artifacts/video", bytes.NewBufferString("bounded-video"))
+	uploadRequest.Header.Set("Authorization", "Bearer "+token)
+	uploadRequest.Header.Set("Content-Type", "video/mp4")
+	uploadRequest.Header.Set("X-GoGIF-Worker-ID", "gpu-one")
+	uploadRequest.Header.Set("X-GoGIF-Lease-Token", claim.Job.LeaseToken)
+	uploadRequest.Header.Set("X-GoGIF-Filename", "master.mp4")
+	uploadResponse := httptest.NewRecorder()
+	handler.ServeHTTP(uploadResponse, uploadRequest)
+	if uploadResponse.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d; body = %s", uploadResponse.Code, uploadResponse.Body.String())
+	}
+	var artifact scene.Artifact
+	if err := json.NewDecoder(uploadResponse.Body).Decode(&artifact); err != nil {
+		t.Fatal(err)
+	}
+	artifactJSON, err := json.Marshal(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
 	finishRequest := httptest.NewRequest(http.MethodPost, "http://example.com/api/v1/scene-jobs/"+claim.Job.ID+"/finish", bytes.NewBufferString(`{
-      "worker_id":"gpu-one","lease_token":"`+claim.Job.LeaseToken+`","result":{"success":true,"artifacts":[`+artifact+`]}
+	  "worker_id":"gpu-one","lease_token":"`+claim.Job.LeaseToken+`","result":{"success":true,"artifacts":[`+string(artifactJSON)+`]}
     }`))
 	finishRequest.Header.Set("Authorization", "Bearer "+token)
 	finishRequest.Header.Set("Content-Type", "application/json")
@@ -125,9 +147,17 @@ func newSceneTestHandler(t *testing.T) (http.Handler, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	blobs, err := store.NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := scene.NewArtifactRepository(kv, blobs, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
 	token := strings.Repeat("w", 40)
 	return New(Options{
 		Planner: planner.Local{}, Auth: authManager, Plans: account.NewCatalog(account.CatalogOptions{}),
-		Scenes: repository, SceneWorkerToken: token, SceneLease: time.Minute,
+		Scenes: repository, SceneArtifacts: artifacts, SceneWorkerToken: token, SceneLease: time.Minute,
 	}), token
 }
