@@ -33,6 +33,7 @@ if (-not (Test-Path $EnvironmentPath -PathType Leaf)) {
 }
 
 $PowerShell = (Get-Process -Id $PID).Path
+$UserId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $ActionArguments = @(
     "-NoLogo"
     "-NoProfile"
@@ -42,9 +43,9 @@ $ActionArguments = @(
 ) -join " "
 
 $Action = New-ScheduledTaskAction -Execute $PowerShell -Argument $ActionArguments -WorkingDirectory $RepoRoot
-$Trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+$Trigger = New-ScheduledTaskTrigger -AtLogOn -User $UserId
 $Principal = New-ScheduledTaskPrincipal `
-    -UserId "$env:USERDOMAIN\$env:USERNAME" `
+    -UserId $UserId `
     -LogonType Interactive `
     -RunLevel Limited
 $Settings = New-ScheduledTaskSettingsSet `
@@ -57,7 +58,10 @@ $Settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable
 $Task = New-ScheduledTask -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings
 
-Register-ScheduledTask -TaskName $TaskName -InputObject $Task -Force | Out-Null
+$RegisteredTask = Register-ScheduledTask -TaskName $TaskName -InputObject $Task -Force -ErrorAction Stop
+if ($null -eq $RegisteredTask -or $RegisteredTask.TaskName -ne $TaskName) {
+    throw "Scheduled task registration did not return the expected task: $TaskName"
+}
 Write-Host "Installed scheduled task: $TaskName"
 Write-Host "The worker will start at login and restart after transient failures."
 
