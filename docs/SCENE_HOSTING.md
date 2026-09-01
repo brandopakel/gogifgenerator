@@ -32,9 +32,9 @@ Use three deliberate phases instead of moving the whole application into the clo
 
 Keep the current Go API on the Mac for private testing and run one pull-based worker on the owned Windows/NVIDIA machine over Tailscale. This validates leases, cancellation, Blender handoff, Unreal Movie Render Queue, artifact upload, and real render costs without paying for an idle cloud GPU. The worker needs outbound HTTPS only; never expose the editor or an inbound render-control port.
 
-The worker executable now exists at `cmd/gogif-scene-worker`. Keep Scene disabled
-on the live API until the Windows renderer passes the smoke test below. Enable
-the control plane with:
+The worker executable now exists at `cmd/gogif-scene-worker`. Keep the Scene UI
+hidden until the remaining production gates below pass. Enable the control
+plane with:
 
 ```sh
 export GOGIF_ENABLE_SCENE_JOBS=true
@@ -58,6 +58,9 @@ On the Windows/NVIDIA host:
    after changing it; a fixed 16 GB pagefile can exhaust the Windows commit
    limit before Unreal finishes initializing. Do not place the pagefile on a
    removable worker/workspace drive.
+   A continuously available owned worker must also disable automatic sleep and
+   hibernation while connected to AC power; battery and display timeouts can
+   remain unchanged.
 2. Clone this repository to `C:\gogifgenerator` and copy
    `.env.worker.example` to the ignored `.env.worker` file.
 3. Put the same `GOGIF_SCENE_WORKER_TOKEN` in the API and worker files. Put the
@@ -154,9 +157,21 @@ cancel request cancels the active command context and is acknowledged as a
 terminal canceled job. Worker shutdown deliberately leaves the lease to expire
 so another attempt can safely reclaim it.
 
+### Validated Windows smoke render
+
+On September 1, 2026, the owned Windows worker completed the first real
+end-to-end smoke job on an NVIDIA RTX 4060 Ti host with 16 GB of physical RAM
+and a 32 GB internal-SSD pagefile. A 256×256, 12 fps, one-second project moved
+through Comfy reference acquisition, Blender FBX preparation, Unreal frame
+rendering, FFmpeg MP4 encoding, and authenticated artifact upload. The control
+plane reopened and verified the MP4, poster PNG, and FBX sizes and SHA-256
+digests before marking the project succeeded. This validates the baseline happy
+path; it does not replace the fault, cancellation, scale, quality, or cost tests
+below.
+
 ## Required before the UI switch appears
 
-1. Render one Blender → Unreal → FFmpeg project on the Windows worker, then run real cancellation, worker-crash/reclaim, and corrupted-upload tests.
+1. Run real cancellation, worker-crash/reclaim, and corrupted-upload tests; the baseline Blender → Unreal → FFmpeg render now passes.
 2. Add an owner-authorized artifact download/preview endpoint; private storage is currently worker-ingest only.
 3. Add progress streaming or bounded browser polling and the real Scene workspace UI.
 4. Add durable metering: reserve estimated credits, settle measured compute/storage after success, and release failed/canceled work.

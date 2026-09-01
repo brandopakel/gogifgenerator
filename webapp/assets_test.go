@@ -264,6 +264,25 @@ func TestResultActionsNeverWrap(t *testing.T) {
 	}
 }
 
+func TestCreateResetAndFreshVariationSeeds(t *testing.T) {
+	index, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{`id="reset-create-button"`, "function randomSeed()", "state.seed = randomSeed()", "function resetCreateWorkspace()", "clearResult(false)", "Your creation remains saved in your library"} {
+		if !strings.Contains(string(index), marker) && !strings.Contains(string(script), marker) {
+			t.Fatalf("Create reset and variation behavior does not contain %q", marker)
+		}
+	}
+	if strings.Contains(string(script), "if (reroll) state.seed = Date.now()") {
+		t.Fatal("ordinary Create submissions still reuse a seed until Reroll")
+	}
+}
+
 func TestCreateDoesNotExposeProceduralOrLocalEditorRenderers(t *testing.T) {
 	index, err := fs.ReadFile(Files(), "index.html")
 	if err != nil {

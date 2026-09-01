@@ -74,7 +74,7 @@ Exit condition: the same account, projects, and generation API work across suppo
 ## Milestone 5 — high-powered engine
 
 - Persistent Scene project/job records, target-aware leases, bounded progress, retries, and cooperative cancellation (backend foundation implemented; assets/cameras/lights UI pending)
-- Outbound-only Windows worker, versioned capability handshake, heartbeats, cancellation, Blender → Unreal → FFmpeg execution, verified artifact upload, and a current-user scheduled-task installer (implemented; real GPU smoke test and compute settlement pending)
+- Outbound-only Windows worker, versioned capability handshake, heartbeats, cancellation, Blender → Unreal → FFmpeg execution, verified artifact upload, and a current-user scheduled-task installer (implemented; first real GPU smoke render passed; fault-path tests and compute settlement pending)
 - Image/multiview-to-3D, 3D rigging/retargeting, smart topology, and direct Blender/Unity/Unreal import after prompt-to-GLB evaluation
 - Blender asset preparation followed by a deliberate Unity 6.3 **or** Unreal Engine 5 scene target; the old all-editors sequence remains only a validated developer proof-of-concept
 - Capability-based engine selection and reproducible intermediate assets; do not combine independently rendered frames without an explicit compositing contract

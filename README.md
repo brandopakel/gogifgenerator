@@ -14,7 +14,7 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Server-side GPT Image 2 adapter for high-fidelity prompt-to-image and reference editing, separately paid and explicitly opt-in
 - Opt-in experimental scene pipeline with Blender asset preparation, Unity 6.3 real-time motion/VFX, Unreal Engine 5 cinematic rendering, and FFmpeg encoding
 - UI-hidden asynchronous Scene project/job foundation with owner isolation, target-aware worker leases, progress, retries, cooperative cancellation, and artifact contracts
-- Cross-compiled outbound-only Windows Scene worker for Comfy reference acquisition → Blender FBX → Unreal frames → FFmpeg MP4/WebM, with heartbeat cancellation and verified private artifact upload
+- Cross-compiled outbound-only Windows Scene worker for Comfy reference acquisition → Blender FBX → Unreal frames → FFmpeg MP4/WebM, with heartbeat cancellation and verified private artifact upload; the first real NVIDIA/Unreal smoke render passed on September 1, 2026
 - Natural-language art planning with a deterministic offline planner
 - Optional, disabled-by-default OpenAI art direction through the Responses API and strict structured output
 - Automatic local fallback if the AI provider is unavailable
@@ -29,6 +29,7 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Private photo, existing-GIF, and optional FFmpeg-backed short-video editor with trim, direct crop/caption manipulation, zoom, timing, and loop controls
 - Undo/redo plus explicit IndexedDB drafts that keep source media and settings in the current browser
 - Messages/Discord/Slack export presets, bounded size optimization, animation-quality controls, native GIF copy where supported, PNG-frame/link fallbacks elsewhere, download, and native file sharing
+- Fresh randomized seeds for every GIF/3D submission and Reroll, plus a one-click Reset that clears the prompt and preview while authenticated results remain automatically saved in the private Library
 - Allowlisted, size-bounded temporary Wikimedia reference fetching with deletion after each job
 - Optional direct-to-GIPHY GIF and sticker search with required attribution and continuous pagination
 - MemKV-backed asset catalog with an ephemeral zero-config fallback

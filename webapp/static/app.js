@@ -7,6 +7,7 @@ const elements = {
   createToolbar: document.querySelector('#create-toolbar'),
 	createOptions: document.querySelector('#create-options'),
 	createKind: document.querySelector('#create-kind'),
+  resetCreate: document.querySelector('#reset-create-button'),
   createPanel: document.querySelector('#create-panel'),
   searchPanel: document.querySelector('#search-panel'),
   previewShell: document.querySelector('#preview-shell'),
@@ -662,9 +663,19 @@ async function submitPrompt(event) {
   }
 }
 
-async function generateModel(prompt, reroll = false) {
+function randomSeed() {
+	const values = new Uint32Array(2);
+	if (globalThis.crypto?.getRandomValues) {
+		globalThis.crypto.getRandomValues(values);
+		const seed = (values[0] & 0x1fffff) * 0x100000000 + values[1];
+		return seed || 1;
+	}
+	return Date.now();
+}
+
+async function generateModel(prompt) {
 	setWorking(true, 'Building the 3D asset…');
-	if (reroll) state.seed = Date.now();
+	state.seed = randomSeed();
 	try {
 	  const response = await fetch('/api/v1/models/generate', {
 		method: 'POST',
@@ -686,9 +697,9 @@ async function generateModel(prompt, reroll = false) {
 	}
 }
 
-async function generate(prompt, reroll = false) {
+async function generate(prompt) {
   setWorking(true, 'Generating the scene in Comfy Cloud…');
-  if (reroll) state.seed = Date.now();
+  state.seed = randomSeed();
   try {
     const size = Number(elements.size.value);
     const payload = {
@@ -800,7 +811,7 @@ async function exportUpload(caption) {
     body.append('frames', elements.quality.value);
     body.append('delay_ms', elements.tempo.value);
     body.append('motion', elements.motion.value);
-    body.append('seed', String(Date.now()));
+    body.append('seed', String(randomSeed()));
     body.append('crop_x', elements.cropX.value);
     body.append('crop_y', elements.cropY.value);
     body.append('zoom', elements.zoom.value);
@@ -910,6 +921,17 @@ function clearResult(restoreUpload = true) {
 	  elements.previewEmpty.hidden = false;
 	  elements.resultTitle.textContent = 'Ready when you are';
   }
+}
+
+function resetCreateWorkspace() {
+	const savedToLibrary = Boolean(state.resultBlob && state.resultURL && state.account?.authenticated);
+	elements.prompt.value = '';
+	elements.prompt.style.height = 'auto';
+	state.seed = 0;
+	clearReference();
+	clearResult(false);
+	elements.prompt.focus();
+	if (savedToLibrary) showToast('Cleared. Your creation remains saved in your library.');
 }
 
 async function shareResult() {
@@ -1989,6 +2011,7 @@ function clearReference() {
 
 function setWorking(working, message = 'Directing the pixels…') {
   elements.submit.disabled = working;
+  elements.resetCreate.disabled = working;
   elements.working.hidden = !working;
 	const status = elements.working.querySelector('p');
 	if (status) status.textContent = message;
@@ -2010,6 +2033,7 @@ for (const mode of elements.modes) mode.addEventListener('click', () => {
   setMode(mode.dataset.mode);
 });
 elements.form.addEventListener('submit', submitPrompt);
+	elements.resetCreate.addEventListener('click', resetCreateWorkspace);
 	elements.createKind.addEventListener('change', () => {
 		if (elements.createKind.value === 'model' && state.account?.enabled && !state.account?.plan?.models_3d) {
 			elements.createKind.value = 'gif';
