@@ -15,10 +15,22 @@ const (
 )
 
 var allowedMotions = map[string]bool{
+	"none":     true,
 	"orbit":    true,
 	"pulse":    true,
 	"waves":    true,
 	"confetti": true,
+}
+
+// Motions lists the renderer's motion vocabulary. Planners publish it to a
+// model as a closed enum so an unsupported value cannot reach the renderer.
+func Motions() []string {
+	return []string{"orbit", "pulse", "waves", "confetti"}
+}
+
+// SupportsMotion reports whether the renderer can draw the named motion.
+func SupportsMotion(motion string) bool {
+	return allowedMotions[motion]
 }
 
 // Spec is the compact, validated contract shared by AI planners and renderers.

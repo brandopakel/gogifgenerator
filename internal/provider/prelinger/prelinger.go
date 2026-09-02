@@ -45,9 +45,13 @@ type Options struct {
 	ImageBase      string
 	UserAgent      string
 	Client         *http.Client
+	// Matcher optionally locates a quote whose words never appear verbatim in
+	// the transcript. Exact and fuzzy token matching still run first.
+	Matcher subtitle.Matcher
 }
 
 type Prelinger struct {
+	matcher        subtitle.Matcher
 	searchEndpoint *url.URL
 	metadataBase   *url.URL
 	detailsBase    *url.URL
@@ -90,7 +94,7 @@ func New(options Options) (*Prelinger, error) {
 	return &Prelinger{
 		searchEndpoint: parsed[0], metadataBase: parsed[1], detailsBase: parsed[2],
 		downloadBase: parsed[3], imageBase: parsed[4], userAgent: options.UserAgent,
-		client: options.Client, gate: make(chan struct{}, 1),
+		client: options.Client, gate: make(chan struct{}, 1), matcher: options.Matcher,
 	}, nil
 }
 
@@ -188,7 +192,7 @@ func (p *Prelinger) ResolveQuote(ctx context.Context, externalID, locale, quote 
 		// A malformed optional transcript must not hide a playable item.
 		return result, nil
 	}
-	match, ok := subtitle.Find(cues, quote)
+	match, ok := subtitle.FindSemantic(ctx, cues, quote, p.matcher)
 	if ok {
 		result.QuoteMatch = &provider.QuoteMatch{
 			Text: match.Text, StartMS: match.StartMS, EndMS: match.EndMS,

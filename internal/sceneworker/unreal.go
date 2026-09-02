@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/png"
 	"io"
 	"math"
 	"net/http"
@@ -125,6 +127,9 @@ func (r *UnrealRenderer) Render(ctx context.Context, project scene.Project, work
 	if err := r.unreal.Run(ctx, job); err != nil {
 		return nil, fmt.Errorf("scene worker: Unreal stage: %w", err)
 	}
+	if err := validateRenderedFrame(filepath.Join(paths.UnrealFrames, "frame-0000.png"), paths.ReferenceImage, project.Width, project.Height); err != nil {
+		return nil, fmt.Errorf("scene worker: Unreal visual validation: %w", err)
+	}
 	progress("encoding-master", 80)
 	masterPath, contentType, err := r.encode(ctx, project, paths.UnrealFrames, frames, filepath.Join(workspace, "output"))
 	if err != nil {
@@ -204,7 +209,7 @@ func writeMotion(filename string, frames, fps int) error {
 		phase := float64(index) / float64(max(1, frames-1))
 		angle := phase * 2 * math.Pi
 		contract.Frames[index] = motionFrame{
-			Yaw: phase * 360, Pitch: math.Sin(angle) * 4, CameraX: math.Sin(angle) * 0.3,
+			Yaw: math.Sin(angle) * 2.5, Pitch: math.Cos(angle) * 1.25, CameraX: math.Sin(angle) * 0.3,
 			CameraY: math.Cos(angle) * 0.12, CameraZoom: 1 + math.Sin(angle)*0.04,
 		}
 	}
@@ -227,6 +232,105 @@ func boundedReferenceDimensions(width, height int) (int, int) {
 	}
 	scale := math.Min(float64(imagegen.MaxDimension)/float64(width), float64(imagegen.MaxDimension)/float64(height))
 	return max(64, int(math.Round(float64(width)*scale))), max(64, int(math.Round(float64(height)*scale)))
+}
+
+func validateRenderedFrame(filename, referenceFilename string, width, height int) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return errors.New("first beauty frame is missing")
+	}
+	decoded, _, decodeErr := image.Decode(io.LimitReader(file, 32<<20))
+	closeErr := file.Close()
+	if decodeErr != nil || closeErr != nil || decoded.Bounds().Dx() != width || decoded.Bounds().Dy() != height {
+		return errors.New("first beauty frame is not a valid PNG at the requested dimensions")
+	}
+
+	// Unreal displays a nearly grey checkerboard while a freshly imported
+	// material is still compiling. Existing validation only checked dimensions,
+	// so that placeholder could be uploaded as a successful render. Sample up
+	// to roughly 65k pixels and require meaningful luminance range or color.
+	bounds := decoded.Bounds()
+	stride := max(1, int(math.Sqrt(float64(bounds.Dx()*bounds.Dy())/65536.0)))
+	minLuma, maxLuma := 255.0, 0.0
+	totalChroma, samples, opaque := 0.0, 0, 0
+	for y := bounds.Min.Y; y < bounds.Max.Y; y += stride {
+		for x := bounds.Min.X; x < bounds.Max.X; x += stride {
+			r16, g16, b16, a16 := decoded.At(x, y).RGBA()
+			r, g, b := float64(r16>>8), float64(g16>>8), float64(b16>>8)
+			luma := 0.2126*r + 0.7152*g + 0.0722*b
+			minLuma, maxLuma = math.Min(minLuma, luma), math.Max(maxLuma, luma)
+			totalChroma += math.Max(r, math.Max(g, b)) - math.Min(r, math.Min(g, b))
+			if a16 >= 0xff00 {
+				opaque++
+			}
+			samples++
+		}
+	}
+	if samples == 0 || float64(opaque)/float64(samples) < 0.95 {
+		return errors.New("beauty frame is unexpectedly transparent")
+	}
+	if maxLuma-minLuma < 48 && totalChroma/float64(samples) < 6 {
+		return errors.New("beauty frame contains Unreal's low-detail placeholder instead of rendered scene content")
+	}
+	if err := validateReferenceVisible(decoded, referenceFilename); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateReferenceVisible(rendered image.Image, referenceFilename string) error {
+	file, err := os.Open(referenceFilename)
+	if err != nil {
+		return errors.New("semantic reference is missing during visual validation")
+	}
+	reference, _, decodeErr := image.Decode(io.LimitReader(file, 32<<20))
+	closeErr := file.Close()
+	if decodeErr != nil || closeErr != nil {
+		return errors.New("semantic reference is not decodable during visual validation")
+	}
+
+	// The starter Scene contract deliberately frames the semantic image card in
+	// the center 80% of the Unreal shot. Compare a small grid against the source
+	// (including mirrored variants introduced by FBX axis conversion) so a sky,
+	// floor, or unrelated default world cannot masquerade as a successful scene.
+	const grid = 24
+	best := math.MaxFloat64
+	for _, flipX := range []bool{false, true} {
+		for _, flipY := range []bool{false, true} {
+			total := 0.0
+			for gy := range grid {
+				for gx := range grid {
+					u := (float64(gx) + 0.5) / grid
+					v := (float64(gy) + 0.5) / grid
+					ru, rv := u, v
+					if flipX {
+						ru = 1 - ru
+					}
+					if flipY {
+						rv = 1 - rv
+					}
+					rr, rg, rb, _ := sampleNormalized(reference, ru, rv, 0)
+					or, og, ob, _ := sampleNormalized(rendered, u, v, 0.1)
+					total += math.Abs(rr-or) + math.Abs(rg-og) + math.Abs(rb-ob)
+				}
+			}
+			best = math.Min(best, total/(grid*grid*3))
+		}
+	}
+	if best > 48 {
+		return errors.New("beauty frame does not visibly contain the semantic reference")
+	}
+	return nil
+}
+
+func sampleNormalized(frame image.Image, u, v, inset float64) (float64, float64, float64, float64) {
+	bounds := frame.Bounds()
+	u = inset + u*(1-2*inset)
+	v = inset + v*(1-2*inset)
+	x := bounds.Min.X + min(bounds.Dx()-1, max(0, int(u*float64(bounds.Dx()))))
+	y := bounds.Min.Y + min(bounds.Dy()-1, max(0, int(v*float64(bounds.Dy()))))
+	r, g, b, a := frame.At(x, y).RGBA()
+	return float64(r >> 8), float64(g >> 8), float64(b >> 8), float64(a >> 8)
 }
 
 func copyBounded(source, target string, limit int64) error {

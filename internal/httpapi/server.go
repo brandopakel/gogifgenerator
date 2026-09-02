@@ -31,6 +31,7 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
 	"github.com/brandopakel/gogifgenerator/internal/media"
 	"github.com/brandopakel/gogifgenerator/internal/modelgen"
+	"github.com/brandopakel/gogifgenerator/internal/motiongen"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
 	"github.com/brandopakel/gogifgenerator/internal/reference"
@@ -56,6 +57,7 @@ type Options struct {
 	Providers         []provider.Provider
 	ImageGenerator    imagegen.Generator
 	ModelGenerator    modelgen.Generator
+	MotionGenerator   motiongen.Generator
 	CinematicRenderer cinematic.Renderer
 	CinematicStatus   cinematic.Descriptor
 	ReferenceFetcher  *reference.Fetcher
@@ -117,6 +119,7 @@ func New(options Options) http.Handler {
 	mux.HandleFunc("GET /api/v1/scenes", server.requireAccount(server.listScenes))
 	mux.HandleFunc("POST /api/v1/scenes", server.requireAccount(server.createScene))
 	mux.HandleFunc("GET /api/v1/scenes/{id}", server.requireAccount(server.getScene))
+	mux.HandleFunc("GET /api/v1/scenes/{id}/artifacts/{kind}", server.requireAccount(server.getSceneArtifact))
 	mux.HandleFunc("POST /api/v1/scenes/{id}/cancel", server.requireAccount(server.cancelScene))
 	mux.HandleFunc("POST /api/v1/scene-jobs/claim", server.sceneWorker(server.claimSceneJob))
 	mux.HandleFunc("POST /api/v1/scene-jobs/{id}/heartbeat", server.sceneWorker(server.heartbeatSceneJob))
@@ -288,6 +291,7 @@ func (s *server) publicConfig(w http.ResponseWriter, _ *http.Request) {
 		"providers":        providers,
 		"image_generator":  imageGeneratorDescriptor(s.options.ImageGenerator),
 		"model_generator":  modelGeneratorDescriptor(s.options.ModelGenerator),
+		"motion_generator": motionGeneratorDescriptor(s.options.MotionGenerator),
 		"quality_pipeline": s.options.CinematicStatus,
 		"scene_workspace":  sceneWorkspaceDescriptor(s.options.Scenes),
 		"video_editor":     videoDecoderDescriptor(s.options.VideoDecoder),
@@ -932,7 +936,7 @@ func (s *server) plan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"engine": result.Engine, "spec": result.Spec})
+	writeJSON(w, http.StatusOK, map[string]any{"engine": result.Engine, "spec": result.Spec, "brief": result.Brief})
 }
 
 func (s *server) generate(w http.ResponseWriter, r *http.Request) {
@@ -1376,6 +1380,12 @@ func (s *server) createGIF(ctx context.Context, request planner.Request, result 
 		// The result screen already presents the prompt beneath the media. Keep
 		// semantic source art clean so text does not cover the generated scene.
 		result.Spec.ShowPrompt = false
+		// Semantic generation should animate the model's scene, not decorate it
+		// with planner-owned confetti. Only preserve that overlay when the user
+		// explicitly asked for confetti.
+		if result.Spec.Motion == "confetti" && !explicitlyRequestsConfetti(request.Prompt) {
+			result.Spec.Motion = "pulse"
+		}
 	}
 	if semanticRequired && (s.options.ImageGenerator == nil || !s.options.ImageGenerator.Descriptor().Semantic) {
 		return nil, "", errSemanticUnavailable
@@ -1387,7 +1397,7 @@ func (s *server) createGIF(ctx context.Context, request planner.Request, result 
 	studioRequired := studioRequested || (len(inputs) > 0 && requireGenerator && !imageSupportsReferences)
 	if studioRequired && s.options.CinematicRenderer != nil {
 		generated, renderErr := s.options.CinematicRenderer.Render(ctx, cinematic.Request{
-			Prompt: request.Prompt, Inputs: inputs, Spec: result.Spec,
+			Prompt: request.Prompt, Inputs: inputs, Spec: result.Spec, Brief: result.Brief,
 		})
 		if renderErr == nil {
 			return generated.Data, generated.Engine + "+" + result.Engine, nil
@@ -1402,7 +1412,8 @@ func (s *server) createGIF(ctx context.Context, request planner.Request, result 
 	useImageGenerator := semanticRequired || requireGenerator
 	if useImageGenerator && s.options.ImageGenerator != nil {
 		generated, generateErr := s.options.ImageGenerator.Generate(ctx, imagegen.Request{
-			Prompt: request.Prompt, Inputs: inputs, Width: result.Spec.Width, Height: result.Spec.Height, Seed: result.Spec.Seed,
+			Prompt: request.Prompt, Inputs: inputs, Width: result.Spec.Width, Height: result.Spec.Height,
+			Seed: result.Spec.Seed, Brief: result.Brief,
 		})
 		if generateErr != nil {
 			if requireGenerator || semanticRequired {
@@ -1420,6 +1431,27 @@ func (s *server) createGIF(ctx context.Context, request planner.Request, result 
 				return nil, "", fmt.Errorf("decode generated image: %w", decodeErr)
 			}
 			s.options.Logger.Warn("decode locally generated image; using Go renderer", "generator", generated.Engine, "error", decodeErr)
+		} else if semanticRequired && s.options.MotionGenerator != nil && s.options.VideoDecoder != nil {
+			motion, motionErr := s.options.MotionGenerator.Generate(ctx, motiongen.Request{
+				Prompt: request.Prompt,
+				Input:  imagegen.Input{Data: generated.Data, ContentType: generated.ContentType},
+				Width:  result.Spec.Width, Height: result.Spec.Height, Seed: result.Spec.Seed,
+			})
+			if motionErr != nil {
+				return nil, "", fmt.Errorf("%w: animate source image: %v", errSemanticGeneration, motionErr)
+			}
+			animation, decodeErr := s.options.VideoDecoder.Decode(ctx, video.Request{
+				Data: motion.Data, Filename: motion.Filename, StartMS: 0, EndMS: motion.SourceDurationMS, Frames: result.Spec.Frames,
+			})
+			if decodeErr != nil {
+				return nil, "", fmt.Errorf("%w: decode generated motion: %v", errSemanticGeneration, decodeErr)
+			}
+			videoSpec := result.Spec
+			videoSpec.Motion = "none"
+			if renderErr := render.EditedGIF(&output, animation, videoSpec, render.EditOptions{Zoom: 1, CaptionPosition: "bottom", Loop: true}); renderErr != nil {
+				return nil, "", fmt.Errorf("%w: encode generated motion: %v", errSemanticGeneration, renderErr)
+			}
+			engine = motion.Engine + "+" + generated.Engine + "+" + result.Engine
 		} else if renderErr := render.ImageGIF(&output, source, result.Spec); renderErr != nil {
 			if requireGenerator || semanticRequired {
 				if semanticRequired {
@@ -1441,6 +1473,11 @@ func (s *server) createGIF(ctx context.Context, request planner.Request, result 
 		}
 	}
 	return output.Bytes(), engine, nil
+}
+
+func explicitlyRequestsConfetti(prompt string) bool {
+	prompt = strings.ToLower(prompt)
+	return strings.Contains(prompt, "confetti") || strings.Contains(prompt, "falling paper")
 }
 
 func (s *server) generationSupportsReferences() bool {
@@ -1548,6 +1585,13 @@ func imageGeneratorDescriptorValue(generator imagegen.Generator) imagegen.Descri
 }
 
 func modelGeneratorDescriptor(generator modelgen.Generator) any {
+	if generator == nil {
+		return nil
+	}
+	return generator.Descriptor()
+}
+
+func motionGeneratorDescriptor(generator motiongen.Generator) any {
 	if generator == nil {
 		return nil
 	}

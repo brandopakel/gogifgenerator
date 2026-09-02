@@ -40,6 +40,12 @@ const elements = {
   searchScope: document.querySelector('#search-scope'),
 	modelOptions: document.querySelector('#model-options'),
 	modelRecipe: document.querySelector('#model-recipe'),
+	sceneOptions: document.querySelector('#scene-options'),
+	sceneTarget: document.querySelector('#scene-target'),
+	sceneSize: document.querySelector('#scene-size'),
+	sceneDuration: document.querySelector('#scene-duration'),
+	sceneFPS: document.querySelector('#scene-fps'),
+	sceneProject: document.querySelector('#scene-project'),
   install: document.querySelector('#install-button'),
   pricing: document.querySelector('#pricing-button'),
   signIn: document.querySelector('#sign-in-button'),
@@ -108,6 +114,7 @@ const state = {
   history: [], historyIndex: -1, applyingHistory: false, currentDraftID: '', drag: null,
   searchRequestID: 0, searchSession: null, clipTrail: [],
   account: null, plans: [], usage: null, libraryItems: [], libraryCursor: '', collections: [], selectedCollection: '',
+  scenes: [], currentScene: null, sceneRequestID: 0,
 };
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -144,6 +151,15 @@ async function loadConfig() {
 	} else {
 	  elements.modelRecipe.append(new Option('ComfyUI 3D · setup required', 'tripo-3.1'));
 	}
+	const scene = state.config.scene_workspace || {};
+	const sceneOption = elements.createKind.querySelector('option[value="scene"]');
+	sceneOption.hidden = !scene.ui_enabled;
+	elements.sceneTarget.replaceChildren();
+	for (const target of scene.engine_targets || []) {
+		elements.sceneTarget.append(new Option(target === 'unreal' ? 'Unreal Engine 5' : 'Unity 6.3', target));
+	}
+	if (!elements.sceneTarget.options.length) elements.sceneTarget.append(new Option('No worker target', ''));
+	applyPlanControls();
     updateSearchScope();
     if (state.mode === 'search') queueSearch();
   } catch {
@@ -246,6 +262,11 @@ function applyPlanControls() {
 	const modelOption = elements.createKind.querySelector('option[value="model"]');
 	modelOption.disabled = !plan.models_3d;
 	if (state.mode === 'model' && !plan.models_3d) setMode('create');
+	const sceneOption = elements.createKind.querySelector('option[value="scene"]');
+	const sceneAvailable = Boolean(state.config?.scene_workspace?.ui_enabled && elements.sceneTarget.value);
+	sceneOption.hidden = !sceneAvailable;
+	sceneOption.disabled = !sceneAvailable || !plan.studio;
+	if (state.mode === 'scene' && sceneOption.disabled) setMode('create');
 }
 
 function renderPricing() {
@@ -587,12 +608,15 @@ async function refreshOwnedState() {
 }
 
 function setMode(mode) {
-	const changingMediaType = (mode === 'model') !== (state.mode === 'model');
+	const mediaType = (value) => value === 'model' ? 'model' : value === 'scene' ? 'scene' : 'gif';
+	const changingMediaType = mediaType(mode) !== mediaType(state.mode);
+	if (state.mode === 'scene' && mode !== 'scene') state.sceneRequestID += 1;
   state.mode = mode;
 	if (changingMediaType && state.resultBlob) clearResult(mode === 'edit');
 	const modeling = mode === 'model';
-	elements.createKind.value = modeling ? 'model' : 'gif';
-	const selectedTopLevelMode = modeling ? 'create' : mode;
+	const creatingScene = mode === 'scene';
+	elements.createKind.value = modeling ? 'model' : creatingScene ? 'scene' : 'gif';
+	const selectedTopLevelMode = modeling || creatingScene ? 'create' : mode;
   for (const button of elements.modes) {
 		const active = button.dataset.mode === selectedTopLevelMode;
     button.classList.toggle('active', active);
@@ -609,21 +633,27 @@ function setMode(mode) {
 	elements.createOptions.hidden = editing || searching || library;
   elements.searchOptions.hidden = !searching;
 	elements.modelOptions.hidden = !modeling;
+	elements.sceneOptions.hidden = !creatingScene;
   elements.uploadEditor.hidden = !editing;
   elements.editControls.hidden = !editing;
-	elements.referenceChip.hidden = editing || modeling || !state.reference;
+	elements.referenceChip.hidden = editing || modeling || creatingScene || !state.reference;
 	elements.prompt.required = !editing && !library;
-	elements.submitLabel.textContent = editing ? 'Export GIF' : searching ? 'Find it' : modeling ? 'Build 3D' : 'Make it';
-	elements.submit.setAttribute('aria-label', editing ? 'Export edited GIF' : searching ? 'Search GIFs' : modeling ? 'Create 3D model' : 'Create GIF');
-	elements.prompt.placeholder = editing ? 'Add a caption (optional)…' : searching ? 'Search GIFs or clips…' : modeling ? 'Describe a 3D model…' : 'Describe a GIF…';
+	elements.submitLabel.textContent = editing ? 'Export GIF' : searching ? 'Find it' : modeling ? 'Build 3D' : creatingScene ? 'Render scene' : 'Make it';
+	elements.submit.setAttribute('aria-label', editing ? 'Export edited GIF' : searching ? 'Search GIFs' : modeling ? 'Create 3D model' : creatingScene ? 'Create a rendered scene' : 'Create GIF');
+	elements.prompt.placeholder = editing ? 'Add a caption (optional)…' : searching ? 'Search GIFs or clips…' : modeling ? 'Describe a 3D model…' : creatingScene ? 'Describe a Blender and Unreal scene…' : 'Describe a GIF…';
   elements.reroll.textContent = editing ? 'Re-export' : 'Reroll';
   elements.presetField.hidden = !editing;
   elements.targetSizeField.hidden = !editing;
-	elements.generationControls.hidden = modeling;
-	elements.prompt.maxLength = editing ? 42 : modeling ? 1024 : 500;
+	elements.generationControls.hidden = modeling || creatingScene;
+	elements.prompt.maxLength = editing ? 42 : modeling || creatingScene ? 1024 : 500;
   elements.previewShell.classList.toggle('editing', editing && Boolean(state.uploadFile) && !state.resultBlob);
   elements.editorOverlay.hidden = !(editing && state.uploadFile && !state.resultBlob);
 	if (modeling && !state.resultBlob) {
+	  elements.preview.hidden = true;
+	  elements.videoPreview.hidden = true;
+	  elements.modelPreview.hidden = true;
+	  elements.previewEmpty.hidden = false;
+	} else if (creatingScene && !state.resultBlob) {
 	  elements.preview.hidden = true;
 	  elements.videoPreview.hidden = true;
 	  elements.modelPreview.hidden = true;
@@ -639,6 +669,7 @@ function setMode(mode) {
     if (state.account?.authenticated) loadLibrary(true);
     else renderLibrarySignIn();
   } else if (searching) queueSearch();
+  else if (creatingScene) loadScenes();
   else {
     clearTimeout(searchTimer);
     state.searchRequestID += 1;
@@ -656,6 +687,8 @@ async function submitPrompt(event) {
     await exportUpload(prompt);
 	} else if (prompt && state.mode === 'model') {
 	  await generateModel(prompt);
+  } else if (prompt && state.mode === 'scene') {
+	await generateScene(prompt);
   } else if (prompt && state.mode === 'create') {
     await generate(prompt);
   } else if (prompt) {
@@ -694,6 +727,168 @@ async function generateModel(prompt) {
 	  showToast(error.message);
 	} finally {
 	  setWorking(false);
+	}
+}
+
+async function loadScenes() {
+	if (!state.account?.authenticated || !state.config?.scene_workspace?.ui_enabled) return;
+	try {
+		const response = await fetch('/api/v1/scenes?limit=20', { credentials: 'same-origin' });
+		if (!response.ok) throw await responseProblem(response, 'Scene projects could not be loaded.');
+		const data = await response.json();
+		state.scenes = data.items || [];
+		renderSceneProjects();
+	} catch (error) {
+		showToast(error.message);
+	}
+}
+
+function renderSceneProjects() {
+	const selected = state.currentScene?.id || '';
+	elements.sceneProject.replaceChildren(new Option('New scene', ''));
+	for (const project of state.scenes) {
+		const label = `${project.name || project.prompt} · ${formatSceneState(project)}`;
+		elements.sceneProject.append(new Option(label.length > 72 ? `${label.slice(0, 69)}…` : label, project.id));
+	}
+	if ([...elements.sceneProject.options].some((option) => option.value === selected)) elements.sceneProject.value = selected;
+}
+
+function formatSceneState(project) {
+	if (project.state === 'succeeded') return 'ready';
+	if (project.state === 'failed') return 'failed';
+	if (project.state === 'canceled') return 'canceled';
+	return `${project.progress || 0}%`;
+}
+
+async function generateScene(prompt) {
+	if (!state.account?.authenticated) {
+		showToast('An account is required for persistent Scene projects.');
+		return;
+	}
+	const requestID = ++state.sceneRequestID;
+	state.seed = randomSeed();
+	setWorking(true, 'Submitting the Scene project…');
+	elements.reroll.textContent = 'Cancel';
+	elements.reroll.disabled = false;
+	try {
+		const size = Number(elements.sceneSize.value);
+		const response = await fetch('/api/v1/scenes', {
+			method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				name: prompt.length > 80 ? `${prompt.slice(0, 77)}…` : prompt,
+				prompt, engine_target: elements.sceneTarget.value, master_format: 'mp4',
+				width: size, height: size, fps: Number(elements.sceneFPS.value),
+				duration_ms: Number(elements.sceneDuration.value), seed: state.seed,
+			}),
+		});
+		if (!response.ok) throw await responseProblem(response, `Scene submission failed (${response.status})`);
+		const project = await response.json();
+		state.currentScene = project;
+		state.scenes = [project, ...state.scenes.filter((candidate) => candidate.id !== project.id)];
+		renderSceneProjects();
+		elements.resultTitle.textContent = `${project.name} · queued`;
+		scrollToElement(elements.createPanel);
+		await watchScene(project.id, requestID);
+	} catch (error) {
+		if (requestID === state.sceneRequestID) showToast(error.message);
+	} finally {
+		if (requestID === state.sceneRequestID) {
+			setWorking(false);
+			elements.reroll.textContent = 'Render again';
+			elements.reroll.disabled = false;
+		}
+	}
+}
+
+async function watchScene(projectID, requestID) {
+	while (requestID === state.sceneRequestID && state.mode === 'scene') {
+		const response = await fetch(`/api/v1/scenes/${encodeURIComponent(projectID)}`, { credentials: 'same-origin' });
+		if (!response.ok) throw await responseProblem(response, 'Scene progress could not be loaded.');
+		const project = await response.json();
+		state.currentScene = project;
+		state.scenes = [project, ...state.scenes.filter((candidate) => candidate.id !== project.id)];
+		renderSceneProjects();
+		const stage = (project.stage || project.state).replaceAll('-', ' ');
+		elements.resultTitle.textContent = `${project.name} · ${stage} · ${project.progress || 0}%`;
+		setWorking(true, `${stage} · ${project.progress || 0}%`);
+		if (project.state === 'succeeded') {
+			await presentSceneProject(project);
+			await refreshOwnedState();
+			return;
+		}
+		if (project.state === 'failed') throw new Error(project.error || 'The Scene worker could not finish this render.');
+		if (project.state === 'canceled') throw new Error('The Scene render was canceled.');
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+	}
+}
+
+async function presentSceneProject(project) {
+	const video = project.artifacts?.find((artifact) => artifact.kind === 'video');
+	if (!video) throw new Error('The Scene completed without a playable master video.');
+	const resultURL = `/api/v1/scenes/${encodeURIComponent(project.id)}/artifacts/video`;
+	const response = await fetch(resultURL, { credentials: 'same-origin' });
+	if (!response.ok) throw await responseProblem(response, 'The Scene master could not be opened.');
+	presentSceneResult(await response.blob(), resultURL);
+	elements.resultTitle.textContent = project.name;
+}
+
+async function openSceneProject(projectID) {
+	if (!projectID) {
+		state.currentScene = null;
+		resetCreateWorkspace();
+		return;
+	}
+	const project = state.scenes.find((candidate) => candidate.id === projectID);
+	if (!project) return;
+	state.currentScene = project;
+	elements.prompt.value = project.prompt;
+	elements.sceneTarget.value = project.engine_target;
+	elements.sceneSize.value = String(project.width);
+	elements.sceneDuration.value = String(project.duration_ms);
+	elements.sceneFPS.value = String(project.fps);
+	clearResult(false);
+	if (project.state === 'succeeded') {
+		setWorking(true, 'Opening the Scene master…');
+		try {
+			await presentSceneProject(project);
+		} catch (error) {
+			showToast(error.message);
+		} finally {
+			setWorking(false);
+		}
+		return;
+	}
+	if (['queued', 'leased', 'running'].includes(project.state)) {
+		const requestID = ++state.sceneRequestID;
+		elements.reroll.textContent = 'Cancel';
+		elements.reroll.disabled = false;
+		try {
+			await watchScene(project.id, requestID);
+		} catch (error) {
+			if (requestID === state.sceneRequestID) showToast(error.message);
+		} finally {
+			if (requestID === state.sceneRequestID) setWorking(false);
+		}
+		return;
+	}
+	elements.resultTitle.textContent = `${project.name} · ${project.state}`;
+}
+
+async function cancelScene() {
+	const project = state.currentScene;
+	if (!project || !['queued', 'leased', 'running'].includes(project.state)) return;
+	try {
+		const response = await fetch(`/api/v1/scenes/${encodeURIComponent(project.id)}/cancel`, { method: 'POST', credentials: 'same-origin' });
+		if (!response.ok) throw await responseProblem(response, 'The Scene could not be canceled.');
+		state.sceneRequestID += 1;
+		state.currentScene = await response.json();
+		setWorking(false);
+		elements.resultTitle.textContent = `${project.name} · cancellation requested`;
+		elements.reroll.textContent = 'Render again';
+		showToast('Scene cancellation requested.');
+		await loadScenes();
+	} catch (error) {
+		showToast(error.message);
 	}
 }
 
@@ -889,6 +1084,32 @@ function presentModelResult(blob, resultURL = '') {
 	elements.copy.textContent = clipboardSupports('model/gltf-binary') ? 'Copy' : 'Copy link';
 }
 
+function presentSceneResult(blob, resultURL = '') {
+	if (state.objectURL) URL.revokeObjectURL(state.objectURL);
+	state.resultBlob = blob;
+	state.resultKind = 'scene';
+	state.resultURL = new URL(resultURL, window.location.origin).href;
+	state.objectURL = URL.createObjectURL(blob);
+	elements.preview.hidden = true;
+	elements.modelPreview.hidden = true;
+	elements.modelPreview.removeAttribute('src');
+	elements.videoPreview.src = state.objectURL;
+	elements.videoPreview.hidden = false;
+	elements.previewEmpty.hidden = true;
+	elements.editorOverlay.hidden = true;
+	elements.previewShell.classList.remove('editing', 'dragging');
+	elements.previewShell.classList.add('has-result');
+	elements.download.href = state.objectURL;
+	elements.download.download = 'gogif-scene.mp4';
+	elements.download.textContent = 'Download MP4';
+	elements.download.classList.remove('disabled');
+	elements.download.setAttribute('aria-disabled', 'false');
+	elements.share.disabled = false;
+	elements.copy.disabled = false;
+	elements.copy.textContent = 'Copy link';
+	elements.reroll.disabled = false;
+}
+
 function clearResult(restoreUpload = true) {
   if (state.objectURL) URL.revokeObjectURL(state.objectURL);
   state.objectURL = '';
@@ -897,6 +1118,9 @@ function clearResult(restoreUpload = true) {
 	state.resultKind = '';
 	elements.modelPreview.hidden = true;
 	elements.modelPreview.removeAttribute('src');
+	elements.videoPreview.pause();
+	elements.videoPreview.removeAttribute('src');
+	elements.videoPreview.load();
   elements.previewShell.classList.remove('has-result');
   elements.preview.setAttribute('aria-label', 'GIF preview');
   elements.download.removeAttribute('href');
@@ -925,6 +1149,11 @@ function clearResult(restoreUpload = true) {
 
 function resetCreateWorkspace() {
 	const savedToLibrary = Boolean(state.resultBlob && state.resultURL && state.account?.authenticated);
+	if (state.mode === 'scene') {
+		state.sceneRequestID += 1;
+		state.currentScene = null;
+		elements.sceneProject.value = '';
+	}
 	elements.prompt.value = '';
 	elements.prompt.style.height = 'auto';
 	state.seed = 0;
@@ -937,8 +1166,9 @@ function resetCreateWorkspace() {
 async function shareResult() {
   if (!state.resultBlob) return;
 	const isModel = state.resultKind === 'model';
-	const filename = isModel ? 'gogif-model.glb' : 'gogif.gif';
-	const contentType = isModel ? 'model/gltf-binary' : 'image/gif';
+	const isScene = state.resultKind === 'scene';
+	const filename = isModel ? 'gogif-model.glb' : isScene ? 'gogif-scene.mp4' : 'gogif.gif';
+	const contentType = isModel ? 'model/gltf-binary' : isScene ? 'video/mp4' : 'image/gif';
 	const file = new File([state.resultBlob], filename, { type: contentType });
   const shareData = { files: [file], title: 'GoGIF', text: elements.resultTitle.textContent };
   if (navigator.share && (!navigator.canShare || navigator.canShare(shareData))) {
@@ -949,14 +1179,20 @@ async function shareResult() {
       if (error.name === 'AbortError') return;
     }
   }
-	if (await copyResultLink()) showToast(`This browser cannot share the ${isModel ? 'GLB file' : 'GIF'}, so its link was copied.`);
-	else showToast(`File sharing is unavailable here. Save the ${isModel ? 'GLB' : 'GIF'} instead.`);
+	if (await copyResultLink()) showToast(`This browser cannot share the ${isModel ? 'GLB file' : isScene ? 'MP4' : 'GIF'}, so its link was copied.`);
+	else showToast(`File sharing is unavailable here. Save the ${isModel ? 'GLB' : isScene ? 'MP4' : 'GIF'} instead.`);
 }
 
 async function copyResult() {
   if (!state.resultBlob) return;
 	const isModel = state.resultKind === 'model';
-	const contentType = isModel ? 'model/gltf-binary' : 'image/gif';
+	const isScene = state.resultKind === 'scene';
+	const contentType = isModel ? 'model/gltf-binary' : isScene ? 'video/mp4' : 'image/gif';
+	if (isScene) {
+		if (await copyResultLink()) showToast('The private Scene link was copied.');
+		else showToast('This browser cannot copy the Scene. Download the MP4 instead.');
+		return;
+	}
   if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
     try {
 		if (!clipboardSupports(contentType)) throw new Error('unsupported clipboard type');
@@ -2040,7 +2276,12 @@ elements.form.addEventListener('submit', submitPrompt);
 			showPricing();
 			return;
 		}
-		setMode(elements.createKind.value === 'model' ? 'model' : 'create');
+		if (elements.createKind.value === 'scene' && state.account?.enabled && !state.account?.plan?.studio) {
+			elements.createKind.value = 'gif';
+			showPricing();
+			return;
+		}
+		setMode(elements.createKind.value === 'model' ? 'model' : elements.createKind.value === 'scene' ? 'scene' : 'create');
 		elements.prompt.focus();
 	});
 elements.pricing.addEventListener('click', showPricing);
@@ -2089,6 +2330,7 @@ elements.searchScope.addEventListener('change', () => {
   updateSearchScope();
   queueSearch();
 });
+elements.sceneProject.addEventListener('change', () => openSceneProject(elements.sceneProject.value));
 elements.referenceClear.addEventListener('click', clearReference);
 elements.uploadMedia.addEventListener('change', selectUpload);
 elements.copy.addEventListener('click', copyResult);
@@ -2128,6 +2370,8 @@ elements.trimStart.addEventListener('change', () => {
 elements.reroll.addEventListener('click', () => {
   if (state.mode === 'edit') exportUpload(elements.prompt.value.trim());
 	else if (state.mode === 'model') generateModel(elements.prompt.value.trim(), true);
+	else if (state.mode === 'scene' && state.currentScene && ['queued', 'leased', 'running'].includes(state.currentScene.state)) cancelScene();
+	else if (state.mode === 'scene') generateScene(elements.prompt.value.trim());
   else generate(elements.prompt.value.trim(), true);
 });
 elements.prompt.addEventListener('input', () => {

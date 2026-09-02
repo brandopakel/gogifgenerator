@@ -11,6 +11,7 @@ import (
 
 	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
+	"github.com/brandopakel/gogifgenerator/internal/intent"
 )
 
 var ErrUnavailable = errors.New("cinematic: renderer unavailable")
@@ -24,6 +25,10 @@ type Request struct {
 	Prompt string
 	Inputs []imagegen.Input
 	Spec   gifdomain.Spec
+	// Brief is the structured reading of Prompt, passed through to the
+	// reference generator so the cinematic path and the fast path start from
+	// the same subject, action, setting, style, and mood.
+	Brief intent.Brief
 }
 
 func (r Request) Validate() (Request, error) {

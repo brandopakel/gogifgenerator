@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
+	"github.com/brandopakel/gogifgenerator/internal/intent"
 )
 
 type Request struct {
@@ -32,7 +33,11 @@ func (r Request) Validate() error {
 }
 
 type Result struct {
-	Spec   gifdomain.Spec
+	Spec gifdomain.Spec
+	// Brief is the structured reading of the prompt that produced Spec. It is
+	// carried alongside the renderer contract so image generation and catalog
+	// search can use the same interpretation instead of re-guessing it.
+	Brief  intent.Brief
 	Engine string
 }
 

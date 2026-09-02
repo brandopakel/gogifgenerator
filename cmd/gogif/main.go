@@ -28,6 +28,7 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/media"
 	"github.com/brandopakel/gogifgenerator/internal/modelgen"
 	modelcomfy "github.com/brandopakel/gogifgenerator/internal/modelgen/comfyui"
+	"github.com/brandopakel/gogifgenerator/internal/motiongen"
 	"github.com/brandopakel/gogifgenerator/internal/planner"
 	"github.com/brandopakel/gogifgenerator/internal/provider"
 	"github.com/brandopakel/gogifgenerator/internal/provider/gifcities"
@@ -37,6 +38,8 @@ import (
 	"github.com/brandopakel/gogifgenerator/internal/provider/yarn"
 	"github.com/brandopakel/gogifgenerator/internal/reference"
 	"github.com/brandopakel/gogifgenerator/internal/scene"
+	"github.com/brandopakel/gogifgenerator/internal/semantic"
+	"github.com/brandopakel/gogifgenerator/internal/semantic/hfinference"
 	"github.com/brandopakel/gogifgenerator/internal/store"
 	"github.com/brandopakel/gogifgenerator/internal/video"
 	"github.com/brandopakel/gogifgenerator/internal/video/ffmpeg"
@@ -51,19 +54,86 @@ func main() {
 	}
 	localPlanner := planner.Local{}
 	var animationPlanner planner.Planner = localPlanner
+	// A local Hugging Face-compatible endpoint is a model the operator runs
+	// themselves, so it needs no paid-AI opt-in and no vendor token.
+	huggingFaceLocal := planner.IsLocalEndpoint(settings.HuggingFaceBaseURL)
+	huggingFaceReady := huggingFaceLocal || (settings.PaidAIEnabled && settings.HuggingFaceAPIKey != "")
 	paidAIEnabled := settings.PaidAIEnabled && settings.OpenAIAPIKey != ""
-	if paidAIEnabled {
+	plannerName := settings.Planner
+	if plannerName == "" {
+		switch {
+		case paidAIEnabled:
+			plannerName = "openai"
+		case huggingFaceReady:
+			plannerName = "huggingface"
+		default:
+			plannerName = "local"
+		}
+	}
+	var remotePlanner planner.Planner
+	switch plannerName {
+	case "local":
+	case "openai":
+		if !paidAIEnabled {
+			logger.Error("configure OpenAI planning", "error", "GOGIF_ENABLE_PAID_AI=true and OPENAI_API_KEY are required")
+			os.Exit(1)
+		}
+		remotePlanner = planner.OpenAI{
+			APIKey:  settings.OpenAIAPIKey,
+			Model:   settings.OpenAIModel,
+			BaseURL: settings.OpenAIBaseURL,
+		}
+	case "huggingface":
+		if !huggingFaceReady {
+			logger.Error("configure Hugging Face planning",
+				"error", "a loopback GOGIF_HUGGINGFACE_BASE_URL, or GOGIF_ENABLE_PAID_AI=true with HUGGINGFACE_API_KEY, is required")
+			os.Exit(1)
+		}
+		remotePlanner = planner.HuggingFace{
+			APIKey:  settings.HuggingFaceAPIKey,
+			Model:   settings.HuggingFaceModel,
+			BaseURL: settings.HuggingFaceBaseURL,
+		}
+	default:
+		logger.Error("configure planner", "error", "GOGIF_PLANNER must be local, openai, or huggingface")
+		os.Exit(1)
+	}
+	if remotePlanner != nil {
 		animationPlanner = planner.WithFallback{
-			Primary: planner.OpenAI{
-				APIKey:  settings.OpenAIAPIKey,
-				Model:   settings.OpenAIModel,
-				BaseURL: settings.OpenAIBaseURL,
-			},
+			Primary:  remotePlanner,
 			Fallback: localPlanner,
 			OnError: func(err error) {
-				logger.Warn("AI planner unavailable; using local planner", "error", err)
+				logger.Warn("AI planner unavailable; using local planner", "planner", plannerName, "error", err)
 			},
 		}
+		logger.Info("planner configured", "planner", plannerName, "local_endpoint", plannerName == "huggingface" && huggingFaceLocal)
+	}
+
+	// Ranking is optional and always degrades to the offline lexical
+	// embedder, so a missing key or a provider outage never breaks search.
+	var embedder semantic.Embedder
+	switch settings.EmbeddingProvider {
+	case "", "none", "lexical":
+	case "huggingface", "hf-inference":
+		hosted, err := hfinference.New(hfinference.Options{
+			Endpoint: settings.EmbeddingURL, APIKey: settings.HuggingFaceAPIKey, Model: settings.EmbeddingModel,
+		})
+		if err != nil {
+			logger.Error("configure semantic search", "error", err)
+			os.Exit(1)
+		}
+		embedder = &semantic.Cached{Embedder: hosted}
+		logger.Info("semantic search configured", "embedder", hosted.Descriptor().ID, "model", settings.EmbeddingModel, "local", hosted.Descriptor().Local)
+	default:
+		logger.Error("configure semantic search", "error", "GOGIF_EMBEDDING_PROVIDER must be lexical, none, or huggingface")
+		os.Exit(1)
+	}
+	searchRanker := semantic.Ranker{
+		Embedder: embedder,
+		Weight:   settings.EmbeddingWeight,
+		OnError: func(err error) {
+			logger.Warn("semantic ranking degraded", "error", err)
+		},
 	}
 
 	var catalog store.KV = store.NewMemoryKV()
@@ -177,7 +247,7 @@ func main() {
 		logger.Error("configure GifCities", "error", err)
 		os.Exit(1)
 	}
-	archive, err := prelinger.New(prelinger.Options{})
+	archive, err := prelinger.New(prelinger.Options{Matcher: searchRanker})
 	if err != nil {
 		logger.Error("configure Prelinger Archive", "error", err)
 		os.Exit(1)
@@ -192,12 +262,21 @@ func main() {
 		logger.Error("configure Yarn clip search", "error", err)
 		os.Exit(1)
 	}
+	// Interpreted wraps the cache so a distilled query is cached under the
+	// terms actually sent upstream, and ranking still runs on a cache hit.
+	interpreted := func(next provider.Provider) provider.Provider {
+		return provider.Interpreted{
+			Next:   provider.Cached{Next: next, KV: catalog, TTL: 15 * time.Minute},
+			Ranker: searchRanker,
+			Logger: logger,
+		}
+	}
 	mediaProviders := []provider.Provider{
-		provider.Cached{Next: commons, KV: catalog, TTL: 15 * time.Minute},
-		provider.Cached{Next: cities, KV: catalog, TTL: 15 * time.Minute},
-		provider.Cached{Next: archive, KV: catalog, TTL: 15 * time.Minute},
-		provider.Cached{Next: nasaLibrary, KV: catalog, TTL: 15 * time.Minute},
-		provider.Cached{Next: yarnClips, KV: catalog, TTL: 15 * time.Minute},
+		interpreted(commons),
+		interpreted(cities),
+		interpreted(archive),
+		interpreted(nasaLibrary),
+		interpreted(yarnClips),
 	}
 	referenceFetcher, err := reference.New(reference.Options{})
 	if err != nil {
@@ -212,13 +291,14 @@ func main() {
 		videoDecoder = configuredVideoDecoder
 	}
 	var stillGenerator imagegen.Generator
+	var motionGenerator motiongen.Generator
 	imageGeneratorName := settings.ImageGenerator
 	if imageGeneratorName == "" {
 		if settings.PaidImageEnabled && settings.ComfyUIAPIKey != "" {
 			imageGeneratorName = "comfyui-cloud"
 		} else if settings.PaidImageEnabled && settings.OpenAIAPIKey != "" {
 			imageGeneratorName = "openai"
-		} else if settings.ComfyUICheckpoint != "" {
+		} else if settings.ComfyUICheckpoint != "" || settings.ComfyUIGGUFUNet != "" {
 			imageGeneratorName = "comfyui"
 		}
 	}
@@ -232,12 +312,19 @@ func main() {
 		}
 		stillGenerator = generator
 	case "comfyui":
-		if settings.ComfyUICheckpoint == "" {
+		if settings.ComfyUICheckpoint == "" && settings.ComfyUIRecipe == comfyui.RecipeCheckpoint {
 			logger.Error("configure local ComfyUI", "error", "GOGIF_COMFYUI_CHECKPOINT is required")
 			os.Exit(1)
 		}
 		generator, err := comfyui.New(comfyui.Options{
 			Endpoint: settings.ComfyUIURL, Checkpoint: settings.ComfyUICheckpoint, InputDirectory: settings.ComfyUIInputDir,
+			Recipe: settings.ComfyUIRecipe, Steps: settings.ComfyUISteps,
+			PrivateEndpoint: settings.ComfyUIPrivateEndpoint, AuthToken: settings.ComfyUIAuthToken,
+			GGUF: comfyui.GGUF{
+				UNet: settings.ComfyUIGGUFUNet, ClipL: settings.ComfyUIGGUFClipL,
+				ClipT5: settings.ComfyUIGGUFClipT5, VAE: settings.ComfyUIGGUFVAE,
+				Guidance: settings.ComfyUIGGUFGuidance,
+			},
 		})
 		if err != nil {
 			logger.Error("configure local ComfyUI", "error", err)
@@ -251,12 +338,28 @@ func main() {
 		}
 		generator, err := comfypartner.New(comfypartner.Options{
 			Endpoint: settings.ComfyUIImageURL, APIKey: settings.ComfyUIAPIKey, Recipe: settings.ComfyUIImageRecipe,
+			ValidationAttempts: settings.SemanticMaxAttempts,
 		})
 		if err != nil {
 			logger.Error("configure hosted Comfy image generation", "error", err)
 			os.Exit(1)
 		}
 		stillGenerator = generator
+		if settings.PaidMotionEnabled {
+			if videoDecoder == nil {
+				logger.Error("configure hosted motion generation", "error", "FFmpeg is required for hosted image-to-video GIF creation")
+				os.Exit(1)
+			}
+			motion, motionErr := comfypartner.NewMotion(comfypartner.Options{
+				Endpoint: settings.ComfyUIImageURL, APIKey: settings.ComfyUIAPIKey, Recipe: settings.ComfyUIImageRecipe,
+				MaxWait: 10 * time.Minute,
+			})
+			if motionErr != nil {
+				logger.Error("configure hosted motion generation", "error", motionErr)
+				os.Exit(1)
+			}
+			motionGenerator = motion
+		}
 	case "openai":
 		if !settings.PaidImageEnabled || settings.OpenAIAPIKey == "" {
 			logger.Error("configure OpenAI image generation", "error", "GOGIF_ENABLE_PAID_IMAGE_GENERATION=true and OPENAI_API_KEY are required")
@@ -362,6 +465,7 @@ func main() {
 		Providers:         mediaProviders,
 		ImageGenerator:    stillGenerator,
 		ModelGenerator:    modelGenerator,
+		MotionGenerator:   motionGenerator,
 		CinematicRenderer: cinematicRenderer,
 		CinematicStatus:   pipelineStatus,
 		ReferenceFetcher:  referenceFetcher,
@@ -383,6 +487,9 @@ func main() {
 	}
 	if stillGenerator != nil {
 		writeTimeout = 5 * time.Minute
+	}
+	if motionGenerator != nil {
+		writeTimeout = 15 * time.Minute
 	}
 	if cinematicRenderer != nil {
 		writeTimeout = 30 * time.Minute

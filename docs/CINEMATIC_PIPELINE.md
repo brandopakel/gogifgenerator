@@ -25,7 +25,7 @@ The repository contains a strict job manifest, Blender FBX stage, Unity batch pr
 
 The current Mac has Blender 5.2 LTS, FFmpeg 9, Unity 6000.3.23f1, Unreal Engine 5.8.2, Xcode 26.1.1, Apple's Metal toolchain, and Comfy Desktop installed. Unity Personal is activated. Unity produced a validated transparent PNG/motion sequence; Unreal imported the Blender FBX and produced a validated square PNG sequence; and an API request completed the full Blender → Unity → Unreal → FFmpeg path. A second request using a rights-approved temporary Wikimedia reference returned `reference+blender+unity-6.3+unreal-5+ffmpeg+local` and visually retained the semantic image.
 
-This Mac has 8 GB of memory. Unreal's macOS requirements list 16 GB as the minimum and 32 GB as recommended, so it is suitable for functional testing but not representative production rendering. The legacy chain remains opt-in and serialized behind `GOGIF_ENABLE_QUALITY_PIPELINE`. The PWA always sends `generation_mode=semantic`, which uses hosted semantic imagery plus the lightweight Go animator and does not launch any editor.
+This Mac has 8 GB of memory. Unreal's macOS requirements list 16 GB as the minimum and 32 GB as recommended, so it is suitable for functional testing but not representative production rendering. The legacy chain remains opt-in and serialized behind `GOGIF_ENABLE_QUALITY_PIPELINE`. Create → GIF uses hosted semantic imagery, hosted image-to-video motion, and FFmpeg without launching an editor. Create → Scene creates a persistent asynchronous project pulled by the Windows/NVIDIA worker.
 
 Unity 6.3 LTS is the intended Unity target; Unity documents it as the current LTS line supported through December 2027. Its editor supports unattended `-batchmode` plus `-executeMethod`, which is what the Go runner uses. Unreal's official editor scripting supports `-ExecutePythonScript`, and its Movie Render Pipeline is the longer-term replacement for the starter high-resolution capture pass.
 
@@ -92,7 +92,7 @@ export GOGIF_OPENAI_IMAGE_MODEL=gpt-image-2
 export GOGIF_OPENAI_IMAGE_QUALITY=high
 ```
 
-Without a semantic generator, Blender still creates a deterministic prompt-seeded scene; adding Unity and Unreal does not make that procedural geometry understand named subjects. A rights-approved selected provider image can become the temporary reference input. GoGIF carries that normalized image through textured Blender geometry and keeps it as an animated 2.5D compositor base, then blends the validated Unreal beauty and Unity VFX passes above it. This prevents FBX material-import differences from silently erasing the subject while adding restrained camera movement to a generated keyframe.
+Without a semantic generator, Blender still creates deterministic prompt-seeded geometry; adding Unity or Unreal does not make that geometry understand named subjects. The current Scene worker therefore acquires a semantic reference, prepares/exports a Blender FBX, and builds a two-sided, camera-facing Unreal material card from the reference before rendering. It blocks on imported asset/shader loading and validates that the beauty frame is neither Unreal's checkerboard/default world nor missing the reference. This is a reliable 2.5D Scene starter—not prompt-to-3D scene reconstruction. Prompt-specific geometry needs a separate image/multiview-to-3D and scene-assembly milestone.
 
 ## Operational guarantees
 
@@ -109,9 +109,9 @@ Without a semantic generator, Blender still creates a deterministic prompt-seede
 
 ## Next Scene workspace work
 
-1. Add a persistent scene-project manifest for assets, cameras, lights, animation, VFX, render target, output format, and provenance.
-2. Split the current sequential runner into Blender preparation plus one renderer selected by `engine_target=unity` or `engine_target=unreal`.
-3. Queue scene work asynchronously with progress events, cancellation, and a separately provisioned worker so the web/API Mac stays responsive.
-4. Store reproducible source/intermediate assets and MP4/WebM masters; derive GIF only on request.
-5. Add character rig/animation interchange through validated FBX animation or Alembic contracts.
-6. Replace Unreal's starter screenshot pass with Movie Render Queue and measure latency, memory, failures, and visual quality before exposing Scene publicly.
+1. Add source/reference, cameras, lights, animation, VFX, and provenance editing to the persistent project manifest and workspace UI.
+2. Add image/multiview-to-3D plus scene assembly so prompts create usable geometry rather than only a semantically faithful 2.5D card and FBX starter asset.
+3. Store reproducible source/intermediate assets and derive optional GIF/WebP/AVIF outputs from the MP4/WebM master.
+4. Add character rig/animation interchange through validated FBX animation or Alembic contracts.
+5. Replace Unreal's starter screenshot pass with Movie Render Queue and measure latency, memory, failures, visual quality, and cost before public deployment.
+6. Keep Unity as a local/internal alternative until its hosted-service licensing path is resolved in writing.

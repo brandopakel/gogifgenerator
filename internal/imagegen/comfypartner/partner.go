@@ -34,6 +34,7 @@ import (
 var (
 	ErrUnavailable      = fmt.Errorf("%w: comfy hosted GPU unavailable", imagegen.ErrUnavailable)
 	ErrUnsupportedInput = errors.New("comfy partner: reference inputs are not enabled for this recipe")
+	ErrQualityRejected  = errors.New("comfy partner: generated image did not pass visual quality review")
 )
 
 const (
@@ -48,16 +49,20 @@ type Options struct {
 	Client       *http.Client
 	PollInterval time.Duration
 	MaxWait      time.Duration
+	// ValidationAttempts enables hosted vision QA and bounds total image
+	// generations. Zero keeps validation disabled for private/local recipes.
+	ValidationAttempts int
 }
 
 type Generator struct {
-	endpoint     *url.URL
-	apiKey       string
-	recipe       string
-	client       *http.Client
-	pollInterval time.Duration
-	maxWait      time.Duration
-	cloud        bool
+	endpoint           *url.URL
+	apiKey             string
+	recipe             string
+	client             *http.Client
+	pollInterval       time.Duration
+	maxWait            time.Duration
+	cloud              bool
+	validationAttempts int
 }
 
 func New(options Options) (*Generator, error) {
@@ -93,9 +98,13 @@ func New(options Options) (*Generator, error) {
 	if options.MaxWait <= 0 {
 		options.MaxWait = 5 * time.Minute
 	}
+	if options.ValidationAttempts < 0 || options.ValidationAttempts > 3 {
+		return nil, errors.New("comfy partner: validation attempts must be between 0 and 3")
+	}
 	return &Generator{
 		endpoint: endpoint, apiKey: strings.TrimSpace(options.APIKey), recipe: options.Recipe,
 		client: options.Client, pollInterval: options.PollInterval, maxWait: options.MaxWait, cloud: !local,
+		validationAttempts: options.ValidationAttempts,
 	}, nil
 }
 
@@ -113,25 +122,50 @@ func (g *Generator) Generate(ctx context.Context, request imagegen.Request) (ima
 	if len(request.Inputs) != 0 {
 		return imagegen.Result{}, ErrUnsupportedInput
 	}
+	attempts := max(1, g.validationAttempts)
+	workingRequest := request
+	var lastReview qualityReview
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			workingRequest.Seed += int64(104729 * attempt)
+			workingRequest.Prompt = retryPrompt(request.Prompt, lastReview)
+		}
+		normalized, err := g.generateImage(ctx, workingRequest)
+		if err != nil {
+			return imagegen.Result{}, err
+		}
+		if g.validationAttempts == 0 {
+			return imagegen.Result{Data: normalized, ContentType: "image/png", Engine: g.Descriptor().ID, RevisedPrompt: imagegen.ExpandConcept(request.Prompt)}, nil
+		}
+		lastReview, err = g.reviewImage(ctx, request.Prompt, normalized, workingRequest.Seed)
+		if err != nil {
+			return imagegen.Result{}, err
+		}
+		if lastReview.Accepted() {
+			return imagegen.Result{Data: normalized, ContentType: "image/png", Engine: g.Descriptor().ID, RevisedPrompt: imagegen.ExpandConcept(request.Prompt)}, nil
+		}
+	}
+	return imagegen.Result{}, fmt.Errorf("%w: %s", ErrQualityRejected, firstNonEmpty(lastReview.Reason, "the image did not match the prompt"))
+}
+
+func (g *Generator) generateImage(ctx context.Context, request imagegen.Request) ([]byte, error) {
 	promptID, err := g.queue(ctx, fluxUltraWorkflow(request))
 	if err != nil {
-		return imagegen.Result{}, err
+		return nil, err
 	}
 	output, err := g.waitForOutput(ctx, promptID)
 	if err != nil {
-		return imagegen.Result{}, err
+		return nil, err
 	}
 	data, err := g.fetchOutput(ctx, output)
 	if err != nil {
-		return imagegen.Result{}, err
+		return nil, err
 	}
 	normalized, err := normalizePNG(data, request.Width, request.Height)
 	if err != nil {
-		return imagegen.Result{}, fmt.Errorf("comfy partner: normalize generated image: %w", err)
+		return nil, fmt.Errorf("comfy partner: normalize generated image: %w", err)
 	}
-	return imagegen.Result{
-		Data: normalized, ContentType: "image/png", Engine: g.Descriptor().ID,
-	}, nil
+	return normalized, nil
 }
 
 func fluxUltraWorkflow(request imagegen.Request) map[string]any {
@@ -140,8 +174,8 @@ func fluxUltraWorkflow(request imagegen.Request) map[string]any {
 		"1": map[string]any{
 			"class_type": "FluxProUltraImageNode",
 			"inputs": map[string]any{
-				"prompt":            imagegen.CinematicPrompt(request.Prompt, request.Width, request.Height),
-				"prompt_upsampling": false, "seed": seed, "aspect_ratio": aspectRatio(request.Width, request.Height), "raw": true,
+				"prompt":            imagegen.CinematicPrompt(request),
+				"prompt_upsampling": imagegen.ShouldUpsamplePrompt(request.Prompt), "seed": seed, "aspect_ratio": aspectRatio(request.Width, request.Height), "raw": true,
 			},
 		},
 		"2": map[string]any{
@@ -202,6 +236,8 @@ type outputImage struct {
 
 type outputGroup struct {
 	Images []outputImage `json:"images"`
+	Videos []outputImage `json:"videos"`
+	Text   []string      `json:"text"`
 }
 
 type localHistoryEntry struct {

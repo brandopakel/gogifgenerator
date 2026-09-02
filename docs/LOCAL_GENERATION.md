@@ -2,9 +2,9 @@
 
 GoGIF retains three no-key development paths. The built-in Go renderer is instant and dependency-free, Blender can produce procedural 3D art, and local ComfyUI can run a diffusion checkpoint and transform one rights-approved Wikimedia image. Only ComfyUI is semantic enough for the normal prompt-to-GIF product flow.
 
-It also has separately opt-in hosted semantic paths using OpenAI's Image API or a ComfyUI FLUX Partner workflow. Every semantic adapter implements the same `internal/imagegen` contract. Create → GIF always animates that source with the lightweight Go renderer.
+It also has separately opt-in hosted semantic paths using OpenAI's Image API or Comfy Partner workflows. Every semantic adapter implements the same `internal/imagegen` contract. The current Comfy Cloud path creates a FLUX keyframe, validates it with a bounded Claude vision workflow, produces real image-to-video motion with Luma Ray 3.2, and samples that MP4 into a palette-optimized GIF with FFmpeg.
 
-An explicitly enabled legacy cinematic proof-of-concept still coordinates Blender, Unity 6.3, Unreal Engine 5, and FFmpeg for developer validation. It is no longer a GIF source in the PWA. The planned Scene workspace will use Blender for asset preparation and choose Unity or Unreal as the render target. The editor installations remain local, large, and subject to their own activation, licensing, and hardware requirements. See [Scene pipeline](CINEMATIC_PIPELINE.md).
+An explicitly enabled legacy cinematic proof-of-concept still coordinates Blender, Unity 6.3, Unreal Engine 5, and FFmpeg for developer validation. It is no longer a GIF source in the PWA. The experimental persistent Scene workspace uses Blender preparation followed by the Unreal Windows worker; Unity remains an internal/local target pending a separate hosted-use licensing decision. The editor installations remain local, large, and subject to their own activation, licensing, and hardware requirements. See [Scene pipeline](CINEMATIC_PIPELINE.md).
 
 Local software does not create a vendor bill, but it still uses your disk, bandwidth, CPU/GPU, and electricity. Every downloaded checkpoint has its own license; “free to download” does not automatically mean unrestricted commercial use.
 
@@ -42,6 +42,8 @@ The directory must exist and belong to the same machine/filesystem as the GoGIF 
 
 The initial workflow uses standard checkpoint, CLIP, VAE, and KSampler nodes. A checkpoint that requires a custom graph or custom nodes needs its own audited workflow adapter.
 
+A second audited graph, `GOGIF_COMFYUI_RECIPE=flux-gguf`, loads a quantized FLUX transformer through the ComfyUI-GGUF custom nodes so a FLUX-class model fits an 8-16 GB GPU. It can also point at a private Tailscale GPU worker instead of loopback. See [Semantic architecture](SEMANTIC_ARCHITECTURE.md) for the configuration, the per-machine limits, and the model licences.
+
 The verified starter checkpoint is [Comfy-Org's Stable Diffusion 1.5 FP16 archive](https://huggingface.co/Comfy-Org/stable-diffusion-v1-5-archive). It is an older 2.13 GB model under the CreativeML Open RAIL-M license, chosen as a small compatibility baseline—not as the eventual production-quality model. Read its model card and license before shipping generated outputs.
 
 The current M3 test Mac has only 8 GB of unified memory. ComfyUI's documented FLUX.2 Klein 4B distilled workflow cites roughly 8.4 GB of GPU memory before the operating system, GoGIF, Unity, or Unreal are counted, so that model is not a safe local target on this machine. Use a smaller compatibility checkpoint locally, a better-equipped GPU worker, or the hosted adapter for production-quality reference art.
@@ -62,7 +64,7 @@ The model supports larger source resolutions than many GIF canvases. GoGIF gener
 
 ## Comfy hosted semantic imagery
 
-For this 8-GB Mac, the practical production route is to run semantic inference on hosted GPU infrastructure and use the lightweight Go animation path by default. The current audited recipe uses ComfyUI's `FluxProUltraImageNode` in raw mode for natural-looking output, followed by `SaveImage`. Browser requests can set only the prompt, dimensions, and seed; they cannot provide nodes or workflow JSON.
+For this 8-GB Mac, the practical production route is to run semantic and motion inference on hosted GPU infrastructure. The current audited keyframe recipe uses ComfyUI's `FluxProUltraImageNode` in raw mode. A server-owned Claude vision graph rejects semantic mismatches, letterboxing, watermarks, collage layouts, and unwanted text with at most one retry. The accepted PNG is uploaded to a server-owned Luma Ray 3.2 image-to-video graph; FFmpeg then extracts the requested frame count from its five-second MP4 and encodes the final GIF. Browser requests can set only bounded product controls; they cannot provide nodes or workflow JSON.
 
 ```sh
 export COMFY_CLOUD_API_KEY="your-comfy-account-key"
@@ -70,10 +72,12 @@ export GOGIF_ENABLE_PAID_IMAGE_GENERATION=true
 export GOGIF_IMAGE_GENERATOR=comfyui-cloud
 export GOGIF_COMFYUI_IMAGE_URL=https://cloud.comfy.org/api
 export GOGIF_COMFYUI_IMAGE_RECIPE=flux-ultra
+export GOGIF_ENABLE_PAID_MOTION_GENERATION=true
+export GOGIF_SEMANTIC_MAX_ATTEMPTS=2
 make run
 ```
 
-GoGIF sends the key in `X-API-Key` only to Comfy Cloud and supplies it in ComfyUI's documented `extra_data` field for the Partner Node. It follows Cloud's current `/api/jobs/{id}` status contract rather than the deprecated history endpoint. The `/view` redirect is restricted to HTTPS and followed without the API key. Returned image bytes and decoded pixel dimensions are bounded before the image is cropped and resampled to the exact GIF canvas. This hosted source does not launch Blender, Unity, or Unreal during ordinary GIF creation.
+GoGIF sends the key in `X-API-Key` only to Comfy Cloud and supplies it in ComfyUI's documented `extra_data` field for Partner Nodes. It follows Cloud's current `/api/jobs/{id}` status contract rather than the deprecated history endpoint. Output redirects are restricted to HTTPS and followed without the API key. Returned image/video bytes, decoded dimensions, duration, and frame counts are bounded. This hosted source does not launch Blender, Unity, or Unreal during ordinary GIF creation.
 
 Comfy Cloud API execution requires a Creator or Pro subscription. FLUX 1.1 Pro Ultra is a paid Partner Node, so its inference also consumes account credits. A local ComfyUI process can orchestrate the same hosted Partner Node by setting `GOGIF_COMFYUI_IMAGE_URL=http://127.0.0.1:8188`; this avoids the Cloud subscription requirement but still requires Comfy credits and a running local backend.
 

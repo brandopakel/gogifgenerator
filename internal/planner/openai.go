@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	gifdomain "github.com/brandopakel/gogifgenerator/internal/gif"
 )
 
 type OpenAI struct {
@@ -38,33 +36,19 @@ func (p OpenAI) Plan(ctx context.Context, request Request) (Result, error) {
 		p.Client = &http.Client{Timeout: 20 * time.Second}
 	}
 
-	input := fmt.Sprintf("Create a bold, legible animation plan for this idea: %s", request.Prompt)
+	input := fmt.Sprintf("Interpret this idea for an animated GIF: %s", request.Prompt)
 	payload := map[string]any{
 		"model":             p.Model,
-		"instructions":      "You are the art director for a tiny GIF renderer. Pick a short caption, harmonious high-contrast colors, and the motion that best communicates the user's emotion. Return only the structured plan.",
+		"instructions":      planInstructions,
 		"input":             input,
 		"store":             false,
-		"max_output_tokens": 350,
+		"max_output_tokens": 700,
 		"text": map[string]any{
 			"format": map[string]any{
 				"type":   "json_schema",
 				"name":   "gif_plan",
 				"strict": true,
-				"schema": map[string]any{
-					"type":                 "object",
-					"additionalProperties": false,
-					"properties": map[string]any{
-						"caption": map[string]any{"type": "string", "maxLength": 32},
-						"palette": map[string]any{
-							"type":     "array",
-							"minItems": 5,
-							"maxItems": 5,
-							"items":    map[string]any{"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
-						},
-						"motion": map[string]any{"type": "string", "enum": []string{"orbit", "pulse", "waves", "confetti"}},
-					},
-					"required": []string{"caption", "palette", "motion"},
-				},
+				"schema": planSchema(),
 			},
 		},
 	}
@@ -117,36 +101,19 @@ func (p OpenAI) Plan(ctx context.Context, request Request) (Result, error) {
 		return Result{}, errors.New("OpenAI response did not contain output text")
 	}
 
-	var artPlan struct {
-		Caption string   `json:"caption"`
-		Palette []string `json:"palette"`
-		Motion  string   `json:"motion"`
-	}
+	var artPlan modelPlan
 	if err := json.Unmarshal([]byte(outputText), &artPlan); err != nil {
 		return Result{}, fmt.Errorf("decode OpenAI art plan: %w", err)
 	}
-	spec := gifdomain.Defaults()
-	spec.Caption = artPlan.Caption
-	spec.Palette = artPlan.Palette
-	spec.Motion = artPlan.Motion
-	spec.Seed = request.Seed
-	if request.Width != 0 {
-		spec.Width = request.Width
-	}
-	if request.Height != 0 {
-		spec.Height = request.Height
-	}
-	if request.Frames != 0 {
-		spec.Frames = request.Frames
-	}
-	if request.DelayMS != 0 {
-		spec.DelayMS = request.DelayMS
-	}
-	normalized, err := spec.Normalize()
+	brief, err := artPlan.brief(request.Prompt, "openai")
 	if err != nil {
 		return Result{}, fmt.Errorf("invalid OpenAI art plan: %w", err)
 	}
-	return Result{Spec: normalized, Engine: "openai"}, nil
+	spec, err := artPlan.spec(request, brief, request.Seed)
+	if err != nil {
+		return Result{}, fmt.Errorf("invalid OpenAI art plan: %w", err)
+	}
+	return Result{Spec: spec, Brief: brief, Engine: "openai"}, nil
 }
 
 func compactError(body []byte) string {

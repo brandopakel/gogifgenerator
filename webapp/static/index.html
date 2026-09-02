@@ -100,6 +100,7 @@
             <select id="create-kind">
               <option value="gif">GIF</option>
               <option value="model">3D model</option>
+              <option value="scene" hidden>Scene</option>
             </select>
           </div>
         </div>
@@ -117,6 +118,34 @@
           <select id="model-recipe">
             <option value="tripo-3.1">Tripo 3.1 · detailed PBR</option>
           </select>
+        </div>
+        <div id="scene-options" class="scene-options" hidden>
+          <label>Renderer
+            <select id="scene-target"></select>
+          </label>
+          <label>Resolution
+            <select id="scene-size">
+              <option value="256">Preview · 256</option>
+              <option value="480">Standard · 480</option>
+              <option value="720">Quality · 720</option>
+            </select>
+          </label>
+          <label>Duration
+            <select id="scene-duration">
+              <option value="1000">Preview · 1 second</option>
+              <option value="2000">Short · 2 seconds</option>
+              <option value="4000">Full · 4 seconds</option>
+            </select>
+          </label>
+          <label>Frame rate
+            <select id="scene-fps">
+              <option value="12">Preview · 12 fps</option>
+              <option value="24">Cinematic · 24 fps</option>
+            </select>
+          </label>
+          <label class="scene-project-field">Recent projects
+            <select id="scene-project"><option value="">New scene</option></select>
+          </label>
         </div>
         <div id="upload-editor" class="upload-editor" hidden>
           <label class="upload-picker" for="upload-media">

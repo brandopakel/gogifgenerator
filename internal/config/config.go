@@ -14,6 +14,8 @@ type Config struct {
 	PaidAIEnabled          bool
 	PaidImageEnabled       bool
 	PaidModelEnabled       bool
+	PaidMotionEnabled      bool
+	SemanticMaxAttempts    int
 	OpenAIImageModel       string
 	OpenAIImageQuality     string
 	GiphyAPIKey            string
@@ -27,6 +29,23 @@ type Config struct {
 	ComfyUIModelURL        string
 	ComfyUIAPIKey          string
 	ComfyUIModelRecipe     string
+	ComfyUIRecipe          string
+	ComfyUIGGUFUNet        string
+	ComfyUIGGUFClipL       string
+	ComfyUIGGUFClipT5      string
+	ComfyUIGGUFVAE         string
+	ComfyUIGGUFGuidance    float64
+	ComfyUIPrivateEndpoint bool
+	ComfyUIAuthToken       string
+	ComfyUISteps           int
+	HuggingFaceAPIKey      string
+	HuggingFaceModel       string
+	HuggingFaceBaseURL     string
+	Planner                string
+	EmbeddingProvider      string
+	EmbeddingModel         string
+	EmbeddingURL           string
+	EmbeddingWeight        float64
 	ImageGenerator         string
 	ModelGenerator         string
 	BlenderExecutable      string
@@ -68,6 +87,8 @@ func Load() Config {
 		PaidAIEnabled:          envBool("GOGIF_ENABLE_PAID_AI"),
 		PaidImageEnabled:       envBool("GOGIF_ENABLE_PAID_IMAGE_GENERATION"),
 		PaidModelEnabled:       envBool("GOGIF_ENABLE_PAID_MODEL_GENERATION"),
+		PaidMotionEnabled:      envBool("GOGIF_ENABLE_PAID_MOTION_GENERATION"),
+		SemanticMaxAttempts:    envInt("GOGIF_SEMANTIC_MAX_ATTEMPTS", 2),
 		OpenAIImageModel:       envOr("GOGIF_OPENAI_IMAGE_MODEL", "gpt-image-2"),
 		OpenAIImageQuality:     strings.ToLower(strings.TrimSpace(envOr("GOGIF_OPENAI_IMAGE_QUALITY", "high"))),
 		GiphyAPIKey:            os.Getenv("GIPHY_API_KEY"),
@@ -81,6 +102,23 @@ func Load() Config {
 		ComfyUIModelURL:        envOr("GOGIF_COMFYUI_MODEL_URL", comfyUIURL),
 		ComfyUIAPIKey:          os.Getenv("COMFY_CLOUD_API_KEY"),
 		ComfyUIModelRecipe:     strings.ToLower(strings.TrimSpace(envOr("GOGIF_COMFYUI_MODEL_RECIPE", "tripo-3.1"))),
+		ComfyUIRecipe:          strings.ToLower(strings.TrimSpace(envOr("GOGIF_COMFYUI_RECIPE", "sd-checkpoint"))),
+		ComfyUIGGUFUNet:        os.Getenv("GOGIF_COMFYUI_GGUF_UNET"),
+		ComfyUIGGUFClipL:       os.Getenv("GOGIF_COMFYUI_GGUF_CLIP_L"),
+		ComfyUIGGUFClipT5:      os.Getenv("GOGIF_COMFYUI_GGUF_CLIP_T5"),
+		ComfyUIGGUFVAE:         os.Getenv("GOGIF_COMFYUI_GGUF_VAE"),
+		ComfyUIGGUFGuidance:    envFloat("GOGIF_COMFYUI_GGUF_GUIDANCE", 3.5),
+		ComfyUIPrivateEndpoint: envBool("GOGIF_COMFYUI_PRIVATE_ENDPOINT"),
+		ComfyUIAuthToken:       os.Getenv("GOGIF_COMFYUI_AUTH_TOKEN"),
+		ComfyUISteps:           envInt("GOGIF_COMFYUI_STEPS", 0),
+		HuggingFaceAPIKey:      os.Getenv("HUGGINGFACE_API_KEY"),
+		HuggingFaceModel:       envOr("GOGIF_HUGGINGFACE_MODEL", "openai/gpt-oss-120b:cheapest"),
+		HuggingFaceBaseURL:     envOr("GOGIF_HUGGINGFACE_BASE_URL", "https://router.huggingface.co/v1"),
+		Planner:                strings.ToLower(strings.TrimSpace(os.Getenv("GOGIF_PLANNER"))),
+		EmbeddingProvider:      strings.ToLower(strings.TrimSpace(envOr("GOGIF_EMBEDDING_PROVIDER", "lexical"))),
+		EmbeddingModel:         envOr("GOGIF_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"),
+		EmbeddingURL:           envOr("GOGIF_EMBEDDING_URL", "https://router.huggingface.co"),
+		EmbeddingWeight:        envFloat("GOGIF_EMBEDDING_WEIGHT", 0.6),
 		ImageGenerator:         strings.ToLower(strings.TrimSpace(os.Getenv("GOGIF_IMAGE_GENERATOR"))),
 		ModelGenerator:         strings.ToLower(strings.TrimSpace(os.Getenv("GOGIF_MODEL_GENERATOR"))),
 		BlenderExecutable:      envOr("GOGIF_BLENDER_EXECUTABLE", "blender"),
@@ -152,4 +190,12 @@ func envList(name string, fallback []string) []string {
 		}
 	}
 	return result
+}
+
+func envFloat(key string, fallback float64) float64 {
+	value, err := strconv.ParseFloat(strings.TrimSpace(os.Getenv(key)), 64)
+	if err != nil {
+		return fallback
+	}
+	return value
 }

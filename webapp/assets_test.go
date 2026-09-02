@@ -442,7 +442,28 @@ func TestFirstClass3DModelCreationAndActions(t *testing.T) {
 			t.Fatalf("app.js does not contain %q", marker)
 		}
 	}
-	for _, marker := range []string{"elements.createKind.addEventListener('change'", "setMode(elements.createKind.value === 'model' ? 'model' : 'create')", "selectedTopLevelMode = modeling ? 'create' : mode"} {
+	for _, marker := range []string{"elements.createKind.addEventListener('change'", "elements.createKind.value === 'scene' ? 'scene' : 'create'", "modeling || creatingScene ? 'create' : mode"} {
+		if !strings.Contains(string(script), marker) {
+			t.Fatalf("app.js does not contain %q", marker)
+		}
+	}
+}
+
+func TestSceneWorkspaceIsARealCreateOutput(t *testing.T) {
+	index, err := fs.ReadFile(Files(), "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := fs.ReadFile(Files(), "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{`<option value="scene" hidden>Scene</option>`, `id="scene-target"`, `id="scene-project"`, `id="scene-duration"`} {
+		if !strings.Contains(string(index), marker) {
+			t.Fatalf("index.html does not contain %q", marker)
+		}
+	}
+	for _, marker := range []string{"/api/v1/scenes", "generateScene", "watchScene", "presentSceneProject", "/artifacts/video", "cancelScene", "Download MP4"} {
 		if !strings.Contains(string(script), marker) {
 			t.Fatalf("app.js does not contain %q", marker)
 		}

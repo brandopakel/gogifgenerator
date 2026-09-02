@@ -95,7 +95,7 @@ func (g *Generator) Generate(ctx context.Context, request imagegen.Request) (ima
 	if err := request.Validate(); err != nil {
 		return imagegen.Result{}, err
 	}
-	prompt := imagegen.CinematicPrompt(request.Prompt, request.Width, request.Height)
+	prompt := imagegen.CinematicPrompt(request)
 	modelWidth, modelHeight := modelDimensions(request.Width, request.Height)
 	var httpRequest *http.Request
 	var err error

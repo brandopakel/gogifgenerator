@@ -100,6 +100,13 @@ func TestSceneHTTPJobLifecycle(t *testing.T) {
 	if getResponse.Code != http.StatusOK || !strings.Contains(getResponse.Body.String(), `"progress":100`) {
 		t.Fatalf("get status = %d; body = %s", getResponse.Code, getResponse.Body.String())
 	}
+
+	artifactRequest := httptest.NewRequest(http.MethodGet, "http://example.com/api/v1/scenes/"+project.ID+"/artifacts/video", nil)
+	artifactResponse := httptest.NewRecorder()
+	handler.ServeHTTP(artifactResponse, artifactRequest)
+	if artifactResponse.Code != http.StatusOK || artifactResponse.Body.String() != "bounded-video" || artifactResponse.Header().Get("Content-Type") != "video/mp4" {
+		t.Fatalf("artifact status = %d; headers = %#v; body = %q", artifactResponse.Code, artifactResponse.Header(), artifactResponse.Body.String())
+	}
 }
 
 func TestSceneWorkersRequireTokenAndTargetsAreAllowlisted(t *testing.T) {
@@ -126,7 +133,7 @@ func TestPublicConfigReportsSceneFoundationWithoutExposingWorkerSecret(t *testin
 	request := httptest.NewRequest(http.MethodGet, "http://example.com/api/v1/config", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"scene_workspace":{"enabled":true`) || !strings.Contains(response.Body.String(), `"engine_targets":["unreal"]`) {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"scene_workspace":{"enabled":true`) || !strings.Contains(response.Body.String(), `"ui_enabled":true`) || !strings.Contains(response.Body.String(), `"engine_targets":["unreal"]`) {
 		t.Fatalf("config status = %d; body = %s", response.Code, response.Body.String())
 	}
 	if strings.Contains(response.Body.String(), token) {

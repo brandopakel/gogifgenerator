@@ -9,13 +9,17 @@ GoGIF is a Go-powered GIF creation and discovery app designed to feel equally at
 - Pure-Go animated GIF renderer retained for editing, tests, and development utilities
 - Experimental Blender asset/still generation retained outside the normal subject-aware GIF flow
 - Native local ComfyUI adapter for text-to-image and one licensed reference image
-- Hosted-GPU ComfyUI FLUX 1.1 Pro Ultra adapter with an allowlisted server-owned workflow and exact output normalization
+- Hosted-GPU ComfyUI FLUX 1.1 Pro Ultra keyframe generation, Claude vision quality validation with one bounded retry, Luma Ray 3.2 image-to-video motion, and FFmpeg GIF encoding through allowlisted server-owned workflows
 - First-class prompt-to-GLB creation through allowlisted ComfyUI Tripo 3.1 and Hunyuan 3D 3.1 workflows, with interactive preview, save, share, and clipboard/link fallbacks
 - Server-side GPT Image 2 adapter for high-fidelity prompt-to-image and reference editing, separately paid and explicitly opt-in
 - Opt-in experimental scene pipeline with Blender asset preparation, Unity 6.3 real-time motion/VFX, Unreal Engine 5 cinematic rendering, and FFmpeg encoding
-- UI-hidden asynchronous Scene project/job foundation with owner isolation, target-aware worker leases, progress, retries, cooperative cancellation, and artifact contracts
-- Cross-compiled outbound-only Windows Scene worker for Comfy reference acquisition → Blender FBX → Unreal frames → FFmpeg MP4/WebM, with heartbeat cancellation and verified private artifact upload; the first real NVIDIA/Unreal smoke render passed on September 1, 2026
+- Account-only asynchronous Scene workspace with persistent projects, bounded polling, cancellation, recent renders, private MP4 playback/download, and owner-scoped artifact access
+- Cross-compiled outbound-only Windows Scene worker for Comfy reference acquisition → Blender FBX → Unreal frames → FFmpeg MP4/WebM, with heartbeat cancellation, semantic-frame validation, and verified private artifact upload; the first visually inspected NVIDIA/Unreal render passed on September 1, 2026
+- Structured prompt interpretation shared by planning, generation, and search: subject, action, setting, camera, style, mood, negative prompt, and search keywords
 - Natural-language art planning with a deterministic offline planner
+- Optional open-weights planning through any OpenAI-compatible chat endpoint, including a local quantized model over loopback
+- Meaning-aware discovery: sentence queries distilled to catalog terms, results reranked by similarity, and paraphrased quotes located in transcripts, all degrading to an offline embedder
+- Optional quantized FLUX generation through allowlisted ComfyUI-GGUF nodes on a loopback or private Tailscale GPU worker
 - Optional, disabled-by-default OpenAI art direction through the Responses API and strict structured output
 - Automatic local fallback if the AI provider is unavailable
 - Responsive, installable PWA embedded in the Go binary
@@ -51,7 +55,7 @@ make run
 
 Open <http://localhost:8080>. Search, editing, and the developer renderer work without an API key. The user-facing prompt-to-GIF flow is intentionally subject-aware and therefore requires a configured ComfyUI or OpenAI semantic image generator.
 
-The bare process is the zero-spend development topology: public-catalog discovery, editing, the compatibility renderer/API, in-memory metadata, and local filesystem output. It does not provision cloud storage or call a paid AI API. Add local ComfyUI for a no-vendor-bill subject-aware GIF path. See [Zero-cost architecture](docs/ZERO_COST_ARCHITECTURE.md).
+The bare process is the zero-spend development topology: public-catalog discovery, editing, the compatibility renderer/API, in-memory metadata, and local filesystem output. It does not provision cloud storage or call a paid AI API. Add local ComfyUI for a no-vendor-bill subject-aware GIF path. See [Zero-cost architecture](docs/ZERO_COST_ARCHITECTURE.md) and [Semantic architecture](docs/SEMANTIC_ARCHITECTURE.md).
 
 GoGIF is a connector, not a GIF warehouse: existing catalog media stays on its source host. Only original GoGIF outputs (and explicit user uploads) enter managed local storage. A licensed reference used for generation is temporary and is deleted after the new output is created.
 
@@ -71,11 +75,11 @@ The current private test deployment is self-hosted on the Mac and exposed to the
 
 | Output | Work performed | Mac impact | Paid credits |
 | --- | --- | --- | --- |
-| **GIF** | Semantic keyframe on Comfy Cloud; bounded Go animation and GIF encoding on the Mac | Low to moderate | Yes, one hosted image workflow |
+| **GIF** | FLUX keyframe and Claude visual QA on Comfy Cloud; Luma Ray 3.2 image-to-video; FFmpeg sampling/palette GIF encoding on the Mac | Low | Yes, image, QA, and motion Partner workflows |
 | **3D model** | Tripo/Hunyuan Partner Node on Comfy Cloud; GLB validation/storage on the Mac | Low during inference; large models still use browser and disk memory | Yes, one hosted 3D workflow |
-| **Scene** (in development) | Comfy/reference art → Blender assets → Unity **or** Unreal render worker → MP4/WebM, with optional GIF export | Must run asynchronously on a suitably equipped worker | Provider plus worker compute |
+| **Scene** (experimental) | Comfy reference → Blender FBX → Unreal camera/material pass on the Windows worker → FFmpeg MP4/WebM | Mac remains the control plane; Windows/NVIDIA PC performs editor work | Provider plus owned-worker compute |
 
-Ordinary GIF and 3D requests do not launch Blender, Unity, or Unreal. If this Mac becomes hot or swaps heavily, an explicit developer scene-pipeline request is running; stop that experiment and move future scene rendering to an asynchronous GPU/CPU worker. Comfy Cloud hosts model inference only—it does not host the GoGIF web server or the installed editors.
+Ordinary GIF and 3D requests do not launch Blender, Unity, or Unreal. Scene projects are pulled by the Windows worker, so the Mac stays responsive apart from API/storage work. Comfy Cloud hosts model inference only—it does not host the GoGIF web server or the installed editors.
 
 ## Accounts, libraries, and sustainable generation
 
@@ -270,9 +274,9 @@ The first release is intentionally a modular monolith:
 
 ```text
 phone / desktop PWA ─┐
-browser extension ───┼──> Go HTTP API ──┬─> Comfy Cloud FLUX ──> Go animation/GIF
+browser extension ───┼──> Go HTTP API ──┬─> Comfy FLUX → Claude QA → Luma motion → FFmpeg GIF
 web browser ─────────┘                   ├─> Comfy Cloud Tripo/Hunyuan ──> validated GLB
-                                        ├─> future Scene job ──> Blender ──> Unity OR Unreal ──> video/GIF
+                                        ├─> Scene job ──> Windows worker ──> Blender → Unreal → MP4/FBX
                                         └─> provider adapters ──> Wikimedia / GifCities / Prelinger / NASA / Yarn metadata
 ```
 
@@ -287,6 +291,15 @@ ignored `.env.worker` first; never commit worker or Comfy credentials.
 After the one-shot readiness check passes, install its current-user scheduled
 task with `scripts\windows\install-scene-worker-task.ps1 -Start`. The task runs
 at login and restarts after transient failures without opening an inbound port.
+
+To test the current Scene path in the app, leave the Windows PC awake and signed
+in, confirm the `GoGIF Scene Worker` scheduled task is running, then open GoGIF
+and choose **Create → Output → Scene**. Select **Unreal Engine 5**, use the
+256 px / one-second / 12 fps preview settings, enter a visually concrete prompt,
+and choose **Render Scene**. The browser immediately receives a persistent
+project, shows worker progress, and then plays the owner-only MP4 with download
+links for its video and prepared asset. This first target is a validated 2.5D
+semantic reference scene plus Blender FBX—not prompt-to-3D reconstruction yet.
 
 ## Extension development
 

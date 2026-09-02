@@ -117,6 +117,37 @@ func (r *ArtifactRepository) Verify(ctx context.Context, projectID string, artif
 	return nil
 }
 
+// Open returns an owner-authorized project's verified private artifact. The
+// HTTP layer must resolve the project through Repository.GetProject first.
+func (r *ArtifactRepository) Open(ctx context.Context, projectID string, artifact Artifact) (io.ReadCloser, error) {
+	if err := artifact.Validate(projectID); err != nil {
+		return nil, err
+	}
+	data, err := r.kv.Get(ctx, artifactRecordKey(artifact.StorageKey))
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var record artifactRecord
+	if json.Unmarshal(data, &record) != nil || record.Artifact != artifact || record.Blob.Digest != artifact.SHA256 || record.Blob.Size != artifact.SizeBytes {
+		return nil, errors.New("scene: artifact metadata does not match private storage")
+	}
+	reader, blob, err := r.blobs.Open(ctx, record.Blob.Key)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if blob.Digest != artifact.SHA256 || blob.Size != artifact.SizeBytes {
+		_ = reader.Close()
+		return nil, errors.New("scene: artifact blob metadata does not match its project record")
+	}
+	return reader, nil
+}
+
 func artifactRecordKey(storageKey string) string {
 	return artifactRecordPrefix + base64.RawURLEncoding.EncodeToString([]byte(storageKey))
 }

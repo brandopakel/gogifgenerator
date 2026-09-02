@@ -89,7 +89,7 @@ def build_scene(manifest):
         light.data.color = colorsys.hsv_to_rgb(hue, 0.55, 1.0)
         look_at_origin(light)
 
-    bpy.ops.mesh.primitive_plane_add(size=10.5, location=(0, 0, -1.55))
+    bpy.ops.mesh.primitive_plane_add(size=10.5, location=(0, 0, -1.65))
     floor = bpy.context.object
     floor.name = "GoGIF_Floor"
     floor.data.materials.append(material("floor", 0.63, 0.0, 0.62, 0.55, 0.055))
@@ -100,10 +100,25 @@ def build_scene(manifest):
         width = float(manifest["width"])
         height = float(manifest["height"])
         longest = max(width, height)
-        bpy.ops.mesh.primitive_plane_add(size=2.0, location=(0.0, 0.0, -0.02))
+        card_width = 4.5 * width / longest
+        card_height = 4.5 * height / longest
+
+        # Export the semantic reference as an upright scene card. The old
+        # horizontal card forced Unreal to photograph it from overhead.
+        bpy.ops.mesh.primitive_cube_add(size=2.0, location=(0.0, 0.18, 2.95))
+        backing = bpy.context.object
+        backing.name = "GoGIF_Reference_Backing"
+        backing.scale = (card_width + 0.16, 0.12, card_height + 0.16)
+        backing.data.materials.append(material("reference-backing", 0.64, 0.05, 0.52, 0.18, 0.045))
+
+        bpy.ops.mesh.primitive_plane_add(
+            size=2.0,
+            location=(0.0, 0.0, 2.95),
+            rotation=(math.radians(90.0), 0.0, 0.0),
+        )
         reference = bpy.context.object
         reference.name = "GoGIF_Semantic_Reference"
-        reference.scale = (4.5 * width / longest, 4.5 * height / longest, 1.0)
+        reference.scale = (card_width, card_height, 1.0)
         reference.data.materials.append(reference_material(reference_path))
     else:
         base_hue = random.random()

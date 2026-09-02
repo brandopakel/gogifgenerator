@@ -34,10 +34,13 @@ Implementation status: feature-complete and ready for device/design-partner test
 
 ## Milestone 2 — useful AI, measured
 
-- Subject-aware prompt-to-reference generation through local ComfyUI or separately opt-in GPT Image 2 (implemented; production evaluation pending)
+- Subject-aware prompt-to-reference generation through local ComfyUI, Comfy Cloud FLUX, or separately opt-in GPT Image 2 (implemented; production evaluation pending)
+- Hosted Claude visual QA, bounded semantic retry, Luma Ray 3.2 image-to-video motion, and FFmpeg GIF sampling/encoding (implemented; cost/quality evaluation pending)
 - Fail-closed semantic mode that never substitutes procedural shapes for an unavailable AI subject (implemented)
 - Cinematic prompt compiler plus restrained 2.5D motion for semantic keyframes (implemented)
 - First-class prompt-to-GLB creation with curated ComfyUI Tripo/Hunyuan workflows, managed storage, interactive preview, Save, and capability-tested Copy/Share (implemented; paid provider setup and production evaluation pending)
+- Structured prompt interpretation threaded through planning, generation, and catalog search (implemented)
+- Open-weights and local quantized planning behind the same validated brief (implemented)
 - Multimodal planning from uploaded media
 - Intent-based caption and moment selection
 - Background removal and subject tracking
@@ -53,6 +56,7 @@ Exit condition: evaluated AI plans outperform curated deterministic templates on
 - Quote-first clip cards with title/episode, transcript line, duration, poster, and source rights metadata (implemented; catalog metadata varies)
 - Continuously paginated related-clip graph: selecting a clip becomes the next semantic/metadata seed without discarding prior navigation history (implemented)
 - Approved broad clip catalog integration through a Yarn partnership, GIPHY Clips approval, Clip.Cafe with written commercial/content permission, or another licensed API; the experimental Yarn parser must never solve browser challenges or substitute for a production provider contract
+- Semantic reranking of catalog results and paraphrase-tolerant quote matching (implemented; hosted embeddings optional, offline embedder is the default)
 - Generated/private GIF library with tags and semantic search
 - Favorites, recents, collections, and cross-device sync
 - Provider share/view analytics
@@ -73,8 +77,8 @@ Exit condition: the same account, projects, and generation API work across suppo
 
 ## Milestone 5 — high-powered engine
 
-- Persistent Scene project/job records, target-aware leases, bounded progress, retries, and cooperative cancellation (backend foundation implemented; assets/cameras/lights UI pending)
-- Outbound-only Windows worker, versioned capability handshake, heartbeats, cancellation, Blender → Unreal → FFmpeg execution, verified artifact upload, and a current-user scheduled-task installer (implemented; first real GPU smoke render passed; fault-path tests and compute settlement pending)
+- Persistent Scene project/job records, target-aware leases, bounded progress/polling, retries, cooperative cancellation, private artifact playback/download, and recent-project UI (implemented; asset/camera/light editing pending)
+- Outbound-only Windows worker, versioned capability handshake, heartbeats, cancellation, Blender → Unreal → FFmpeg execution, semantic-frame validation, verified artifact upload, and a current-user scheduled-task installer (implemented; visually inspected GPU smoke render passed; fault-path tests and compute settlement pending)
 - Image/multiview-to-3D, 3D rigging/retargeting, smart topology, and direct Blender/Unity/Unreal import after prompt-to-GLB evaluation
 - Blender asset preparation followed by a deliberate Unity 6.3 **or** Unreal Engine 5 scene target; the old all-editors sequence remains only a validated developer proof-of-concept
 - Capability-based engine selection and reproducible intermediate assets; do not combine independently rendered frames without an explicit compositing contract

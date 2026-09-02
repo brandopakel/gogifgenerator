@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/brandopakel/gogifgenerator/internal/imagegen"
+	"github.com/brandopakel/gogifgenerator/internal/motiongen"
 )
 
 func TestCloudGenerateQueuesAllowlistedFluxWorkflowAndNormalizesImage(t *testing.T) {
@@ -83,13 +84,126 @@ func TestCloudGenerateQueuesAllowlistedFluxWorkflowAndNormalizesImage(t *testing
 		t.Fatalf("workflow = %#v", workflow)
 	}
 	inputs := flux["inputs"].(map[string]any)
-	if inputs["raw"] != true || inputs["aspect_ratio"] != "1:1" {
+	if inputs["raw"] != true || inputs["aspect_ratio"] != "1:1" || inputs["prompt_upsampling"] != false {
 		t.Fatalf("Flux inputs = %#v", inputs)
 	}
 	extra := queued["extra_data"].(map[string]any)
 	if extra["api_key_comfy_org"] != "comfy-test-key" {
 		t.Fatalf("extra_data = %#v", extra)
 	}
+}
+
+func TestQualityReviewUsesHostedVisionAndRejectsLetterbox(t *testing.T) {
+	var queued map[string]any
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/upload/image":
+			if err := r.ParseMultipartForm(imagegen.MaxInputBytes); err != nil {
+				t.Error(err)
+			}
+			_, _ = w.Write([]byte(`{"name":"review.png","subfolder":"","type":"input"}`))
+		case "/api/prompt":
+			if err := json.NewDecoder(r.Body).Decode(&queued); err != nil {
+				t.Error(err)
+			}
+			_, _ = w.Write([]byte(`{"prompt_id":"review-job"}`))
+		case "/api/jobs/review-job":
+			_, _ = w.Write([]byte(`{"status":"completed","outputs":{"3":{"text":["{\"matches\":true,\"score\":0.94,\"letterboxed\":false,\"watermark\":false,\"text_overlay\":false,\"collage\":false,\"reason\":\"correct scene\"}"]}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+	client := server.Client()
+	client.Transport = rewriteTransport{target: target, next: client.Transport}
+	generator, err := New(Options{Endpoint: "https://cloud.example/api", APIKey: "key", Client: client, PollInterval: time.Millisecond, ValidationAttempts: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageData := solidPNG(t, 64, 64, color.NRGBA{R: 80, G: 120, B: 170, A: 255})
+	review, err := generator.reviewImage(context.Background(), "blue room", imageData, 42)
+	if err != nil || !review.Accepted() {
+		t.Fatalf("review = %#v, err = %v", review, err)
+	}
+	workflow := queued["prompt"].(map[string]any)
+	claude := workflow["2"].(map[string]any)["inputs"].(map[string]any)
+	if claude["model"] != "Haiku 4.5" || claude["images.image_1"] == nil {
+		t.Fatalf("Claude QA inputs = %#v", claude)
+	}
+
+	letterbox := image.NewNRGBA(image.Rect(0, 0, 64, 64))
+	for y := 10; y < 54; y++ {
+		for x := 0; x < 64; x++ {
+			letterbox.Set(x, y, color.White)
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, letterbox); err != nil {
+		t.Fatal(err)
+	}
+	if !letterboxed(encoded.Bytes()) {
+		t.Fatal("letterboxed() accepted black horizontal bars")
+	}
+}
+
+func TestMotionGeneratorUsesAllowlistedLumaLoop(t *testing.T) {
+	var queued map[string]any
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/upload/image":
+			_, _ = w.Write([]byte(`{"name":"source.png","subfolder":"","type":"input"}`))
+		case "/api/prompt":
+			if err := json.NewDecoder(r.Body).Decode(&queued); err != nil {
+				t.Error(err)
+			}
+			_, _ = w.Write([]byte(`{"prompt_id":"motion-job"}`))
+		case "/api/jobs/motion-job":
+			_, _ = w.Write([]byte(`{"status":"completed","outputs":{"3":{"images":[{"filename":"motion.mp4","subfolder":"gogif/motion","type":"output"}]}}}`))
+		case "/api/view":
+			_, _ = w.Write([]byte("00000000ftypisom-motion"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+	client := server.Client()
+	client.Transport = rewriteTransport{target: target, next: client.Transport}
+	generator, err := NewMotion(Options{Endpoint: "https://cloud.example/api", APIKey: "key", Client: client, PollInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := generator.Generate(context.Background(), motiongen.Request{
+		Prompt: "a fox running", Input: imagegen.Input{Data: solidPNG(t, 64, 64, color.White), ContentType: "image/png"}, Width: 480, Height: 480, Seed: 22,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Engine != "comfyui-partner-luma-ray-3.2" || result.SourceDurationMS != 5000 || result.ContentType != "video/mp4" {
+		t.Fatalf("motion result = %#v", result)
+	}
+	workflow := queued["prompt"].(map[string]any)
+	luma := workflow["2"].(map[string]any)["inputs"].(map[string]any)
+	save := workflow["3"].(map[string]any)["inputs"].(map[string]any)
+	if luma["loop"] != true || luma["resolution"] != "540p" || save["format"] != "mp4" {
+		t.Fatalf("Luma workflow = %#v / %#v", luma, save)
+	}
+}
+
+func solidPNG(t *testing.T, width, height int, fill color.Color) []byte {
+	t.Helper()
+	canvas := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for y := range height {
+		for x := range width {
+			canvas.Set(x, y, fill)
+		}
+	}
+	var output bytes.Buffer
+	if err := png.Encode(&output, canvas); err != nil {
+		t.Fatal(err)
+	}
+	return output.Bytes()
 }
 
 func TestGeneratorRejectsUnsafeConfigurationAndUnsupportedInputs(t *testing.T) {

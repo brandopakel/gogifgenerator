@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/brandopakel/gogifgenerator/internal/intent"
 )
 
 var (
@@ -34,6 +36,10 @@ type Request struct {
 	Width  int     `json:"width"`
 	Height int     `json:"height"`
 	Seed   int64   `json:"seed,omitempty"`
+	// Brief is the structured reading of Prompt. Adapters use it to build a
+	// concrete scene sentence, style direction, and negative prompt instead
+	// of each vendor re-interpreting the raw sentence differently.
+	Brief intent.Brief `json:"brief,omitzero"`
 }
 
 func (r Request) Validate() error {

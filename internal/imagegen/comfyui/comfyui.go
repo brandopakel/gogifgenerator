@@ -37,8 +37,20 @@ var (
 const maxAPIResponseBytes = 2 << 20
 
 type Options struct {
-	Endpoint       string
-	Checkpoint     string
+	Endpoint   string
+	Checkpoint string
+	// Recipe selects the audited workflow graph. It defaults to
+	// RecipeCheckpoint; RecipeFluxGGUF runs a quantized transformer.
+	Recipe string
+	// GGUF names the model files the quantized recipe loads.
+	GGUF GGUF
+	// PrivateEndpoint allows a non-loopback ComfyUI on a private or
+	// Tailscale address. It exists so a workstation with a real GPU can serve
+	// generation for a laptop that cannot. It is off by default because a
+	// prompt then leaves this machine.
+	PrivateEndpoint bool
+	// AuthToken is sent as a bearer token to a private endpoint.
+	AuthToken      string
 	NegativePrompt string
 	InputDirectory string
 	Client         *http.Client
@@ -51,6 +63,10 @@ type Options struct {
 type Generator struct {
 	endpoint       *url.URL
 	checkpoint     string
+	recipe         string
+	gguf           GGUF
+	authToken      string
+	remote         bool
 	negativePrompt string
 	inputDirectory string
 	client         *http.Client
@@ -65,14 +81,37 @@ func New(options Options) (*Generator, error) {
 		options.Endpoint = "http://127.0.0.1:8188"
 	}
 	endpoint, err := url.Parse(options.Endpoint)
-	if err != nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Host == "" || !isLoopback(endpoint.Hostname()) {
-		return nil, errors.New("comfyui: endpoint must be an absolute loopback HTTP(S) URL")
+	if err != nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Host == "" {
+		return nil, errors.New("comfyui: endpoint must be an absolute HTTP(S) URL")
+	}
+	remote := !isLoopback(endpoint.Hostname())
+	if remote {
+		if !options.PrivateEndpoint {
+			return nil, errors.New("comfyui: endpoint must be loopback unless a private endpoint is explicitly enabled")
+		}
+		if !isPrivateWorkerHost(endpoint.Hostname()) {
+			return nil, fmt.Errorf("comfyui: %q is not a private or Tailscale address", endpoint.Hostname())
+		}
 	}
 	if endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
 		return nil, errors.New("comfyui: endpoint cannot contain credentials, query, or fragment")
 	}
-	if options.Checkpoint == "" || filepath.Base(options.Checkpoint) != options.Checkpoint || strings.ContainsAny(options.Checkpoint, `/\\`) {
-		return nil, errors.New("comfyui: checkpoint must be a filename from the local checkpoints directory")
+	if options.Recipe == "" {
+		options.Recipe = RecipeCheckpoint
+	}
+	switch options.Recipe {
+	case RecipeCheckpoint:
+		if options.Checkpoint == "" || filepath.Base(options.Checkpoint) != options.Checkpoint || strings.ContainsAny(options.Checkpoint, `/\\`) {
+			return nil, errors.New("comfyui: checkpoint must be a filename from the local checkpoints directory")
+		}
+	case RecipeFluxGGUF:
+		validated, ggufErr := options.GGUF.validate()
+		if ggufErr != nil {
+			return nil, ggufErr
+		}
+		options.GGUF = validated
+	default:
+		return nil, fmt.Errorf("comfyui: unsupported recipe %q", options.Recipe)
 	}
 	inputDirectory := ""
 	if options.InputDirectory != "" {
@@ -112,6 +151,10 @@ func New(options Options) (*Generator, error) {
 	return &Generator{
 		endpoint:       endpoint,
 		checkpoint:     options.Checkpoint,
+		recipe:         options.Recipe,
+		gguf:           options.GGUF,
+		authToken:      strings.TrimSpace(options.AuthToken),
+		remote:         remote,
 		negativePrompt: options.NegativePrompt,
 		inputDirectory: inputDirectory,
 		client:         options.Client,
@@ -123,12 +166,19 @@ func New(options Options) (*Generator, error) {
 }
 
 func (g *Generator) Descriptor() imagegen.Descriptor {
+	id, label := "comfyui-local", "ComfyUI (local)"
+	if g.recipe == RecipeFluxGGUF {
+		id, label = "comfyui-gguf", "ComfyUI (quantized FLUX)"
+	}
+	if g.remote {
+		id, label = id+"-private", strings.Replace(label, "(local)", "(private worker)", 1)
+	}
 	return imagegen.Descriptor{
-		ID:                 "comfyui-local",
-		Label:              "ComfyUI (local)",
-		Local:              true,
+		ID:                 id,
+		Label:              label,
+		Local:              !g.remote,
 		Semantic:           true,
-		SupportsReferences: g.inputDirectory != "",
+		SupportsReferences: g.inputDirectory != "" && g.recipe == RecipeCheckpoint,
 	}
 }
 
@@ -137,7 +187,7 @@ func (g *Generator) Ping(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	response, err := g.client.Do(request)
+	response, err := g.do(request)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
@@ -158,6 +208,11 @@ func (g *Generator) Generate(ctx context.Context, request imagegen.Request) (ima
 	}
 	if len(request.Inputs) > 1 {
 		return imagegen.Result{}, fmt.Errorf("%w: this workflow accepts one reference image", ErrUnsupportedInput)
+	}
+	if len(request.Inputs) == 1 && g.recipe != RecipeCheckpoint {
+		// Silently discarding a licensed reference would be worse than
+		// refusing the request: the caller believes it is being transformed.
+		return imagegen.Result{}, fmt.Errorf("%w: the %s recipe does not accept reference images", ErrUnsupportedInput, g.recipe)
 	}
 
 	inputName := ""
@@ -211,7 +266,7 @@ func (g *Generator) releaseMemory() {
 		return
 	}
 	request.Header.Set("Content-Type", "application/json")
-	response, err := g.client.Do(request)
+	response, err := g.do(request)
 	if err != nil {
 		return
 	}
@@ -220,6 +275,9 @@ func (g *Generator) releaseMemory() {
 }
 
 func (g *Generator) workflow(request imagegen.Request, inputName string) map[string]any {
+	if g.recipe == RecipeFluxGGUF {
+		return g.fluxWorkflow(request)
+	}
 	seed := uint64(request.Seed) & uint64(^uint64(0)>>1)
 	latentInput := any([]any{"5", 0})
 	denoise := 1.0
@@ -234,8 +292,8 @@ func (g *Generator) workflow(request imagegen.Request, inputName string) map[str
 		},
 		"4": map[string]any{"class_type": "CheckpointLoaderSimple", "inputs": map[string]any{"ckpt_name": g.checkpoint}},
 		"5": map[string]any{"class_type": "EmptyLatentImage", "inputs": map[string]any{"batch_size": 1, "height": request.Height, "width": request.Width}},
-		"6": map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"clip": []any{"4", 1}, "text": imagegen.CompactDiffusionPrompt(request.Prompt, request.Width, request.Height)}},
-		"7": map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"clip": []any{"4", 1}, "text": g.negativePrompt}},
+		"6": map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"clip": []any{"4", 1}, "text": imagegen.CompactDiffusionPrompt(request)}},
+		"7": map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"clip": []any{"4", 1}, "text": imagegen.NegativePrompt(request, g.negativePrompt)}},
 		"8": map[string]any{"class_type": "VAEDecode", "inputs": map[string]any{"samples": []any{"3", 0}, "vae": []any{"4", 2}}},
 		"9": map[string]any{"class_type": "PreviewImage", "inputs": map[string]any{"images": []any{"8", 0}}},
 	}
@@ -266,7 +324,7 @@ func (g *Generator) queue(ctx context.Context, workflow map[string]any) (string,
 		return "", err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	response, err := g.client.Do(request)
+	response, err := g.do(request)
 	if err != nil {
 		return "", fmt.Errorf("%w: queue workflow: %v", ErrUnavailable, err)
 	}
@@ -316,7 +374,7 @@ func (g *Generator) waitForOutput(ctx context.Context, promptID string) (outputI
 		if err != nil {
 			return outputImage{}, err
 		}
-		response, err := g.client.Do(request)
+		response, err := g.do(request)
 		if err != nil {
 			if waitContext.Err() != nil {
 				return outputImage{}, waitContext.Err()
@@ -359,7 +417,7 @@ func (g *Generator) fetchOutput(ctx context.Context, output outputImage) ([]byte
 	if err != nil {
 		return nil, "", err
 	}
-	response, err := g.client.Do(request)
+	response, err := g.do(request)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: fetch generated image: %v", ErrUnavailable, err)
 	}
@@ -415,7 +473,7 @@ func (g *Generator) uploadInput(ctx context.Context, input imagegen.Input) (stri
 		return "", nil, err
 	}
 	request.Header.Set("Content-Type", writer.FormDataContentType())
-	response, err := g.client.Do(request)
+	response, err := g.do(request)
 	if err != nil {
 		_ = cleanup()
 		return "", nil, fmt.Errorf("%w: upload reference: %v", ErrUnavailable, err)
@@ -455,6 +513,39 @@ func (g *Generator) route(path string) string {
 	endpoint := *g.endpoint
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + path
 	return endpoint.String()
+}
+
+// isPrivateWorkerHost keeps a private endpoint on networks the operator
+// controls. It is not a security boundary on its own — the token and the
+// operator's own network are — but it stops a typo from sending prompts to a
+// public address.
+func isPrivateWorkerHost(host string) bool {
+	lowered := strings.ToLower(host)
+	for _, suffix := range []string{".ts.net", ".internal", ".local", ".lan"} {
+		if strings.HasSuffix(lowered, suffix) {
+			return true
+		}
+	}
+	address := net.ParseIP(host)
+	if address == nil {
+		return false
+	}
+	if address.IsPrivate() || address.IsLinkLocalUnicast() {
+		return true
+	}
+	// Tailscale addresses live in the 100.64.0.0/10 carrier-grade NAT range,
+	// which Go does not classify as private.
+	_, cgnat, err := net.ParseCIDR("100.64.0.0/10")
+	return err == nil && cgnat.Contains(address)
+}
+
+// do sends a request, adding the private worker's bearer token. A loopback
+// ComfyUI needs no token and is never sent one.
+func (g *Generator) do(request *http.Request) (*http.Response, error) {
+	if g.authToken != "" && g.remote {
+		request.Header.Set("Authorization", "Bearer "+g.authToken)
+	}
+	return g.client.Do(request)
 }
 
 func isLoopback(host string) bool {

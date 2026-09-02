@@ -32,9 +32,10 @@ Use three deliberate phases instead of moving the whole application into the clo
 
 Keep the current Go API on the Mac for private testing and run one pull-based worker on the owned Windows/NVIDIA machine over Tailscale. This validates leases, cancellation, Blender handoff, Unreal Movie Render Queue, artifact upload, and real render costs without paying for an idle cloud GPU. The worker needs outbound HTTPS only; never expose the editor or an inbound render-control port.
 
-The worker executable now exists at `cmd/gogif-scene-worker`. Keep the Scene UI
-hidden until the remaining production gates below pass. Enable the control
-plane with:
+The worker executable exists at `cmd/gogif-scene-worker`. The private owner
+deployment now exposes Scene under Create for Studio-entitled accounts; public
+deployment remains gated by the validation and cost controls below. Enable the
+control plane with:
 
 ```sh
 export GOGIF_ENABLE_SCENE_JOBS=true
@@ -129,13 +130,15 @@ Unity remains in the schema for local/internal experimentation and export workfl
 
 ## Implemented control plane and worker
 
-The backend is intentionally UI-hidden and disabled by default:
+The backend and UI are disabled by default. When enabled, the account-only
+Scene workspace uses these owner-scoped browser and worker endpoints:
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/v1/scenes` | Validate and enqueue an owner-scoped Scene project |
 | `GET` | `/api/v1/scenes` | List the signed-in owner's projects |
 | `GET` | `/api/v1/scenes/{id}` | Read state, progress, stage, error, and artifact metadata |
+| `GET` | `/api/v1/scenes/{id}/artifacts/{kind}` | Privately stream an owner-authorized video, poster, or FBX artifact |
 | `POST` | `/api/v1/scenes/{id}/cancel` | Cancel queued work or request cooperative worker cancellation |
 | `POST` | `/api/v1/scene-jobs/claim` | Lease the oldest target-compatible job to an authenticated worker |
 | `POST` | `/api/v1/scene-jobs/{id}/heartbeat` | Renew the lease and publish bounded stage/progress state |
@@ -157,7 +160,7 @@ cancel request cancels the active command context and is acknowledged as a
 terminal canceled job. Worker shutdown deliberately leaves the lease to expire
 so another attempt can safely reclaim it.
 
-### Validated Windows smoke render
+### Validated Windows visual smoke render
 
 On September 1, 2026, the owned Windows worker completed the first real
 end-to-end smoke job on an NVIDIA RTX 4060 Ti host with 16 GB of physical RAM
@@ -165,17 +168,18 @@ and a 32 GB internal-SSD pagefile. A 256×256, 12 fps, one-second project moved
 through Comfy reference acquisition, Blender FBX preparation, Unreal frame
 rendering, FFmpeg MP4 encoding, and authenticated artifact upload. The control
 plane reopened and verified the MP4, poster PNG, and FBX sizes and SHA-256
-digests before marking the project succeeded. This validates the baseline happy
-path; it does not replace the fault, cancellation, scale, quality, or cost tests
-below.
+digests before marking the project succeeded. A later visual smoke caught and
+fixed Unreal's asynchronous checkerboard material, card-axis, Rotator-argument,
+and floor-occlusion defects. The worker now blocks on asset loading, uses a
+direct two-sided Unreal reference material, and rejects placeholder or
+reference-missing beauty frames before upload. This validates the baseline
+happy path; it does not replace the fault, cancellation, scale, quality, or cost
+tests below.
 
-## Required before the UI switch appears
+## Required before public deployment
 
 1. Run real cancellation, worker-crash/reclaim, and corrupted-upload tests; the baseline Blender → Unreal → FFmpeg render now passes.
-2. Add an owner-authorized artifact download/preview endpoint; private storage is currently worker-ingest only.
-3. Add progress streaming or bounded browser polling and the real Scene workspace UI.
-4. Add durable metering: reserve estimated credits, settle measured compute/storage after success, and release failed/canceled work.
-5. Add moderation, per-plan duration/resolution limits, per-user queue caps, deadlines, and automatic intermediate/master retention rules.
-6. Replace the Phase 1 file blob adapter with S3-compatible storage before moving the API off the owned Mac; add presigned direct uploads when measurements justify them.
-
-Only then should Create expose `Scene` beside GIF and 3D model.
+2. Add durable metering: reserve estimated credits, settle measured compute/storage after success, and release failed/canceled work.
+3. Add moderation, per-plan duration/resolution limits, per-user queue caps, deadlines, and automatic intermediate/master retention rules.
+4. Replace the Phase 1 file blob adapter with S3-compatible storage before moving the API off the owned Mac; add presigned direct uploads when measurements justify them.
+5. Replace the semantic reference-card starter with prompt-specific image/multiview-to-3D assets, scene assembly, and Movie Render Queue before describing Scene as text-to-3D.

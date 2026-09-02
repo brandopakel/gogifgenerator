@@ -171,7 +171,8 @@ func (p *Pipeline) Render(ctx context.Context, request Request) (Result, error) 
 func (p *Pipeline) reference(ctx context.Context, request Request) ([]byte, string, error) {
 	if p.referenceGenerator != nil {
 		result, err := p.referenceGenerator.Generate(ctx, imagegen.Request{
-			Prompt: request.Prompt, Inputs: request.Inputs, Width: request.Spec.Width, Height: request.Spec.Height, Seed: request.Spec.Seed,
+			Prompt: request.Prompt, Inputs: request.Inputs, Width: request.Spec.Width, Height: request.Spec.Height,
+			Seed: request.Spec.Seed, Brief: request.Brief,
 		})
 		if err != nil {
 			return nil, "", fmt.Errorf("cinematic: reference generator: %w", err)

@@ -37,7 +37,7 @@ func TestGenerateCreatesSemanticImageAndNormalizesOutput(t *testing.T) {
 			t.Errorf("payload = %#v", payload)
 		}
 		prompt, _ := payload["prompt"].(string)
-		if !strings.Contains(prompt, "hero swinging through the city") || !strings.Contains(prompt, "action already in progress") {
+		if !strings.Contains(prompt, "hero swinging through the city") || !strings.Contains(prompt, "show it already in progress") {
 			t.Errorf("prompt = %q", prompt)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{

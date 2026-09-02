@@ -3,6 +3,8 @@ package httpapi
 import (
 	"crypto/subtle"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,7 +20,74 @@ func sceneWorkspaceDescriptor(repository *scene.Repository) map[string]any {
 		return map[string]any{"enabled": false, "ui_enabled": false, "engine_targets": []string{}}
 	}
 	targets := repository.AllowedTargets()
-	return map[string]any{"enabled": true, "ui_enabled": false, "engine_targets": targets}
+	return map[string]any{"enabled": true, "ui_enabled": true, "engine_targets": targets}
+}
+
+func (s *server) getSceneArtifact(w http.ResponseWriter, r *http.Request) {
+	if s.options.Scenes == nil || s.options.SceneArtifacts == nil {
+		writeError(w, http.StatusServiceUnavailable, "Scene artifacts are not enabled on this deployment.")
+		return
+	}
+	project, err := s.options.Scenes.GetProject(r.Context(), s.principal(r).UserID, r.PathValue("id"))
+	if errors.Is(err, scene.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "The Scene project could not be loaded.")
+		return
+	}
+	kind := strings.TrimSpace(r.PathValue("kind"))
+	var artifact scene.Artifact
+	for _, candidate := range project.Artifacts {
+		if candidate.Kind == kind {
+			artifact = candidate
+			break
+		}
+	}
+	if artifact.StorageKey == "" {
+		http.NotFound(w, r)
+		return
+	}
+	reader, err := s.options.SceneArtifacts.Open(r.Context(), project.ID, artifact)
+	if errors.Is(err, scene.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		s.options.Logger.Error("open Scene artifact", "project", project.ID, "kind", kind, "error", err)
+		writeError(w, http.StatusInternalServerError, "The Scene artifact could not be opened.")
+		return
+	}
+	defer reader.Close()
+	w.Header().Set("Content-Type", artifact.ContentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(artifact.SizeBytes, 10))
+	w.Header().Set("ETag", `"`+artifact.SHA256+`"`)
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, sceneArtifactFilename(project, artifact)))
+	if _, err := io.Copy(w, reader); err != nil {
+		s.options.Logger.Warn("stream Scene artifact", "project", project.ID, "kind", kind, "error", err)
+	}
+}
+
+func sceneArtifactFilename(project scene.Project, artifact scene.Artifact) string {
+	extension := map[string]string{
+		"video": ".mp4", "poster": ".png", "gif": ".gif", "asset": ".fbx", "blend": ".blend", "scene": ".json", "log": ".txt",
+	}[artifact.Kind]
+	if artifact.ContentType == "video/webm" {
+		extension = ".webm"
+	}
+	name := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
+			return r
+		}
+		return '-'
+	}, project.Name)
+	name = strings.Trim(strings.Join(strings.FieldsFunc(name, func(r rune) bool { return r == '-' }), "-"), "-")
+	if name == "" {
+		name = project.ID
+	}
+	return name + "-" + artifact.Kind + extension
 }
 
 func (s *server) createScene(w http.ResponseWriter, r *http.Request) {
